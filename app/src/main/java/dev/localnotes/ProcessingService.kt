@@ -1,130 +1,147 @@
 package dev.localnotes
 
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import java.io.File
-import java.util.concurrent.CancellationException
+import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * Background job queue for saved recordings: finishes summaries after recording, transcribes audio that
+ * has no transcript (older recordings) and re-creates summaries on request. Work is tracked with marker
+ * files in each recording's folder, so it survives being paused (by a new recording), stopped or killed,
+ * and resumes later. It never blocks the microphone.
+ */
 class ProcessingService : Service() {
-    @Volatile private var stopping = false
-    private var worker: Thread? = null
-    private var transcriptOnly = false
+    companion object {
+        const val DRAIN = "drain"
+        const val PAUSE = "pause"
+        const val STOP = "stop"
+        const val TRANSCRIBE_PENDING = "transcribe-pending"
+        private val running = AtomicBoolean(false)
+
+        /** Queue work for a recording and start the job. */
+        fun enqueue(context: Context, session: File, transcribe: Boolean, resummarize: Boolean) {
+            if (transcribe) Store.write(File(session, TRANSCRIBE_PENDING), "")
+            if (resummarize && !transcribe) NotesBuilder(session, Transcript(session)).reset()
+            Store.write(File(session, RecorderService.SUMMARY_PENDING), "")
+            context.startForegroundService(Intent(context, ProcessingService::class.java).setAction(DRAIN))
+        }
+        fun isRunning() = running.get()
+        fun pending(session: File) = File(session, RecorderService.SUMMARY_PENDING).exists() || File(session, TRANSCRIBE_PENDING).exists()
+    }
+    @Volatile private var cancelled = false
+    @Volatile private var again = false
     override fun onBind(intent: Intent?): IBinder? = null
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "stop") {
-            stopping = true
-            if (worker == null) stopSelf()
-            Store.status = "Stopping processing…"
-            runCatching { Speech.requestStop() }
-            runCatching { Language.requestStop() }
-            return START_NOT_STICKY
+        when (intent?.action) {
+            PAUSE, STOP -> {
+                // PAUSE: a recording is starting; leave the work queued. STOP: the user stopped it; also clear the queue.
+                cancelled = true; Language.requestStop()
+                if (intent.action == STOP) Store.sessions(this).forEach { File(it, RecorderService.SUMMARY_PENDING).delete(); File(it, TRANSCRIBE_PENDING).delete() }
+                if (!running.get()) stopSelf()
+                return START_NOT_STICKY
+            }
         }
-        if (worker != null) return START_NOT_STICKY
-        if (!Store.busy.compareAndSet(false, true)) { stopSelf(); return START_NOT_STICKY }
-        try {
-            val id = requireNotNull(intent?.getStringExtra("session"))
-            transcriptOnly = intent?.getBooleanExtra("transcriptOnly", false) ?: false
-            val session = Store.sessions(this).firstOrNull { it.name == id } ?: error("Session not found")
-            Store.activeSession = id
-            Notifications.show(this, "Preparing offline AI", 2, if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
-            worker = Thread { process(session) }.also { it.start() }
-        } catch (error: Exception) {
-            Store.status = "Cannot process: ${error.message}"
-            Store.activeSession = null; Store.busy.set(false); stopSelf()
-        }
+        Notifications.show(this, "Writing the summary", 2, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        if (!running.compareAndSet(false, true)) { again = true; return START_NOT_STICKY }
+        cancelled = false
+        Thread { drain() }.also { it.name = "LocalNotes-process" }.start()
         return START_NOT_STICKY
     }
-    private fun update(text: String) {
-        if (stopping) throw CancellationException("Paused; tap Process to resume")
-        Store.status = text
-        Notifications.show(this, text, 2, if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
-    }
-    private fun process(session: File) {
+
+    private fun drain() {
         val wake = getSystemService(PowerManager::class.java).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LocalNotes:process")
+        wake.acquire(6 * 60 * 60 * 1000L)
         try {
-            wake.acquire()
-            val speech = File(Store.models(this), "speech.bin")
-            val language = File(Store.models(this), "summary.gguf")
-            check(speech.exists()) { "Import an English speech model first" }
-            check(transcriptOnly || language.exists()) { "Import the summary model, or choose Transcribe only" }
-            Speech.resetStop()
-            Language.resetStop()
-            val audio = File(session, "audio.pcm")
-            check(audio.length() >= 3200) { "Recording is empty or too short" }
-            val asrKey = TranscriptionStage.cacheKey(audio, speech)
-            val key = TranscriptionStage.key("notes-v2:$asrKey:${language.length()}:${language.lastModified()}")
-            val cache = File(session, "run-$key").apply { mkdirs() }
-            val speechCache = File(session, "asr-$asrKey")
-            Store.write(File(session, "current-run.txt"), cache.name)
-            Store.write(File(session, "state.txt"), "Processing interrupted; tap Continue to resume")
-            var speechHandle = 0L
-            try {
-                TranscriptionStage.run(audio, speechCache, cache, transcribe = { samples, progress ->
-                    if (speechHandle == 0L) {
-                        update("Loading transcription model")
-                        speechHandle = Speech.open(speech.absolutePath)
-                    }
-                    Speech.transcribe(speechHandle, samples, SpeechProgress { percent -> progress(percent) }, 4, 0).toString(Charsets.UTF_8)
-                }, update = { update(it) }, progress = { Store.status = it })
-            } finally { if (speechHandle != 0L) Speech.close(speechHandle) }
-            val transcript = File(cache, "transcript.txt").readText()
-            check(transcript.isNotBlank()) { "No speech detected. Audio is retained." }
-            if (transcriptOnly) {
-                Store.write(File(session, "state.txt"), "Transcript complete; summaries can be created separately")
-                Store.status = "Transcript saved. Open your recording to read it or create summaries."
-                return
-            }
-            check(transcript.isNotBlank()) { "No speech detected. Audio is retained." }
-            update("Loading summary model")
-            val model = Language.open(language.absolutePath)
-            try {
-                val parts = Chunking.textParts(transcript)
-                val notes = parts.mapIndexed { i, part ->
-                    val target = File(cache, "notes-%05d.txt".format(i))
-                    if (!target.exists()) {
-                        update("Writing detailed notes ${i + 1}/${parts.size}")
-                        val prompt = SummaryPrompts.detailed + "\n\nSOURCE TRANSCRIPT:\n$part"
-                        Store.write(target, Language.generate(model, prompt.toByteArray()).toString(Charsets.UTF_8))
-                    }
-                    "## Section ${i + 1}\n${target.readText()}"
+            do {
+                again = false
+                // Oldest first; never touch a recording that is still being recorded.
+                for (session in Store.sessions(this).reversed()) {
+                    if (cancelled || Live.recording.value) break
+                    if (!pending(session) || session.name == Live.session.value) continue
+                    process(session)
                 }
-                Store.write(File(cache, "detailed.md"), "# Detailed notes\n\nAI-generated: verify facts against the timestamped transcript and original audio.\n\n" + notes.joinToString("\n\n"))
-                // Every source section participates; the full detailed notes are never replaced by reductions.
-                var current = notes.joinToString("\n\n")
-                var level = 0
-                while (true) {
-                    val batches = Chunking.textParts(current)
-                    val reduced = batches.mapIndexed { i, part ->
-                        val target = File(cache, "brief-$level-%05d.txt".format(i))
-                        if (!target.exists()) {
-                            update("Writing concise summary • pass ${level + 1}, ${i + 1}/${batches.size}")
-                            val prompt = SummaryPrompts.concise + "\n\nSOURCE NOTES:\n$part"
-                            Store.write(target, Language.generate(model, prompt.toByteArray()).toString(Charsets.UTF_8))
-                        }
-                        target.readText()
-                    }.joinToString("\n\n")
-                    if (batches.size == 1) {
-                        Store.write(File(cache, "concise.md"), "# Concise summary\n\nAI-generated overview; consult detailed notes and transcript for full context.\n\n$reduced")
-                        break
-                    }
-                    check(reduced.length < current.length && level < 10) { "Summary reduction did not converge. Detailed notes and transcript are available." }
-                    current = reduced; level++
-                }
-            } finally { Language.close(model) }
-            Store.write(File(session, "state.txt"), "Complete • review AI output for accuracy")
-            Store.status = "Transcript and both summaries saved"
-        } catch (error: Throwable) {
-            Store.status = if (stopping) "Stopped; completed sections are saved. Tap Continue to resume." else if (error is CancellationException) error.message!! else "Processing stopped: ${error.message ?: error.javaClass.simpleName}"
-            runCatching { Store.write(File(session, "state.txt"), Store.status) }
+            } while (again && !cancelled && !Live.recording.value)
         } finally {
             if (wake.isHeld) wake.release()
-            Store.activeSession = null; Store.busy.set(false)
+            Live.working.value = false; Live.summaryStatus.value = ""; Live.summaryDraft.value = ""
+            if (Live.session.value != null && !Live.recording.value) Live.session.value = null
+            running.set(false)
             stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
         }
     }
-    override fun onDestroy() { stopping = true; runCatching { Speech.requestStop() }; runCatching { Language.requestStop() }; super.onDestroy() }
+
+    private fun process(session: File) {
+        Live.working.value = true
+        if (!Live.recording.value) Live.session.value = session.name
+        val transcript = Transcript(session)
+        try {
+            Language.resetStop()
+            if (File(session, TRANSCRIBE_PENDING).exists() || transcript.size() == 0) {
+                transcribe(session, transcript)
+                File(session, TRANSCRIBE_PENDING).delete()
+            }
+            if (cancelled) return
+            summarize(session, transcript)
+            if (!cancelled) File(session, RecorderService.SUMMARY_PENDING).delete()
+        } catch (error: InterruptedException) {
+            // Paused; the markers stay so the work resumes later.
+        } catch (error: Throwable) {
+            if (!cancelled) {
+                Live.status.value = "Could not finish ${File(session, "title.txt").takeIf { it.exists() }?.readText() ?: "a recording"}: ${error.message}"
+                File(session, RecorderService.SUMMARY_PENDING).delete(); File(session, TRANSCRIBE_PENDING).delete()
+            }
+        } finally {
+            if (Live.session.value == session.name && !Live.recording.value) Live.session.value = null
+        }
+    }
+
+    private fun threads() = if (Thermal.hot(this)) Tuning.summaryThreads else Tuning.finishThreads
+
+    private fun transcribe(session: File, transcript: Transcript) {
+        val spec = Models.active(this, Role.ACCURATE) ?: error("Download the speech models in Setup to transcribe saved audio.")
+        val vad = Models.vadPath(this) ?: error("The voice detector is missing. Download the speech models again in Setup.")
+        val segments = mutableListOf<Segment>()
+        var speaker = Models.active(this, Role.SPEAKER)?.let { runCatching { SpeakerEngine(this, it) }.getOrNull() }
+        try {
+            Refiner(this, spec, threads()).use { refiner ->
+                SpeechSplitter(vad).use { splitter ->
+                    splitter.split(File(session, "audio.pcm"), { cancelled }, { Live.summaryStatus.value = "Transcribing · ${(it * 100).toInt()}%" }) { startMs, samples ->
+                        val text = refiner.transcribe(samples)
+                        if (text.isNotBlank()) {
+                            val voice = runCatching { speaker?.identify(samples) }.onFailure {
+                                Log.w(RecorderService.PERF, "Voice ID stopped during saved transcription", it)
+                                runCatching { speaker?.close() }; speaker = null
+                            }.getOrNull()
+                            segments += Segment(startMs, startMs + samples.size * 1000L / RATE, text, true, voice)
+                        }
+                        if (segments.size % 10 == 0) transcript.replaceAll(segments)
+                    }
+                }
+            }
+        } finally {
+            runCatching { speaker?.close() }
+        }
+        transcript.replaceAll(segments)
+        NotesBuilder(session, transcript).reset()
+    }
+
+    private fun summarize(session: File, transcript: Transcript) {
+        if (transcript.words() == 0) return
+        val spec = Models.active(this, Role.SUMMARY) ?: return
+        val notes = NotesBuilder(session, transcript)
+        val t = System.currentTimeMillis()
+        Writer(this, spec, threads()).use { writer ->
+            while (!cancelled && notes.step(writer, final = true, needRefined = false)) Unit
+            if (!cancelled && (notes.overviewDue() || !File(session, "summary.md").exists())) notes.overview(writer)
+        }
+        if (!cancelled && File(session, "summary.md").exists()) File(session, "transcript-edited").delete()
+        Log.i(RecorderService.PERF, "finish_ms=${System.currentTimeMillis() - t} session=${session.name}")
+    }
 }

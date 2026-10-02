@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = "LocalNotes"
-include(":app", ":speech", ":language")
+include(":app", ":language")

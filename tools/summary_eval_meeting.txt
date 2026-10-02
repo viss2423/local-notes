@@ -1,0 +1,44 @@
+[00:00:04] okay let's get started this is the weekly planning call for the riverside clinic app it's tuesday and we have maya alex priya and tom on the call
+[00:00:15] so first thing the launch date we had pencilled in october seventh but that is moving to october fourteenth because the app store review is taking longer than we thought
+[00:00:31] yeah and just to be clear october fourteenth is the public launch the internal beta still starts on october first that hasn't changed
+[00:00:44] right so budget update we have twelve thousand five hundred euros left for this quarter and the marketing agency quote came in at four thousand two hundred so that would leave about eight thousand three hundred
+[00:01:02] i'd rather we don't sign the agency until finance approves it priya can you check with finance
+[00:01:09] yes i'll talk to finance on thursday and i'll come back by friday with a yes or no
+[00:01:18] great so moving on the booking flow we had a lot of drop off on the payment screen around thirty eight percent of users abandon there
+[00:01:31] um i think it's partly because we only support card payments a lot of people asked for apple pay and google pay
+[00:01:42] we haven't decided on the payment provider yet it's still between stripe and adyen stripe is cheaper for small volumes but adyen has better support for the clinic chains
+[00:01:58] so no decision today on the provider tom will put together a comparison table with fees for both
+[00:02:07] sure i can have that by next wednesday
+[00:02:12] okay accessibility two of the five people we interviewed use screen readers and they couldn't get past the date picker
+[00:02:25] that's a blocker we can't launch with that alex can you own the date picker fix
+[00:02:31] yes i'll fix it this week and i'll ask one of the screen reader users to retest it before the launch
+[00:02:42] also the font size setting doesn't save between sessions that's a smaller bug but we should fix it too
+[00:02:51] let's put that in the backlog it's not a launch blocker
+[00:02:58] the login issue is still happening around three percent of logins fail on older android phones mostly android nine and ten
+[00:03:10] do we know why
+[00:03:12] not yet we think it's the token refresh but we haven't confirmed it priya's team is looking at the logs
+[00:03:21] okay the report for the board must include the failed login issue even if we haven't fixed it the board meets on the twentieth
+[00:03:33] so the venue for the launch event the hotel quoted nine hundred euros for the room
+[00:03:41] i don't want to book any venue until the budget is approved by finance so that waits on priya's answer
+[00:03:50] agreed don't book the venue yet
+[00:03:54] customer support hours we said nine to five on weekdays but clinics are asking for saturday morning cover
+[00:04:05] i'm not sure we can staff that maybe we trial saturday nine to twelve for one month and see the volume
+[00:04:14] that sounds reasonable but let's not promise it to clients until hr confirms staffing tom can you ask hr
+[00:04:22] yep i'll ask hr this week
+[00:04:26] one more thing the translation into spanish we said that's for phase two not for the october launch
+[00:04:35] correct spanish is phase two the october launch is english only
+[00:04:41] data retention legal said we keep appointment history for seven years but we must delete chat messages after ninety days
+[00:04:54] is that already implemented
+[00:04:56] the ninety day deletion is not implemented yet that's on me i'll have it done before the beta on october first
+[00:05:05] that was alex saying that right
+[00:05:07] yes alex owns the chat deletion
+[00:05:11] okay pricing for clinics we agreed on forty nine euros per month per clinic for the first year then it goes to sixty nine
+[00:05:23] and there's a discount for chains with more than ten clinics fifteen percent
+[00:05:30] marketing wants to call it free trial for thirty days do we agree
+[00:05:35] i disagree i think thirty days is too long fourteen days is enough
+[00:05:40] i think thirty is fine clinics are slow to decide
+[00:05:44] let's not decide now we'll look at what competitors do maya will collect three competitor examples
+[00:05:53] okay i'll do that by monday
+[00:05:57] so to recap actions priya finance by friday tom provider comparison by wednesday and hr question alex date picker this week and chat deletion before october first maya competitor examples by monday
+[00:06:15] and the next meeting is tuesday at ten am same link
+[00:06:21] thanks everyone

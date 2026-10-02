@@ -1,6 +1,0 @@
-package dev.localnotes
-
-object SummaryPrompts {
-    const val detailed = "Extract detailed notes as a single bullet list. Use the original wording of each statement, prefixed by its source timestamp and speaker when given. Keep first-person commitments attributed to the speaker. Keep future plans in the future tense, never mark them completed. Each bullet must be supported by the source. Preserve every distinct fact, number, correction, condition, unresolved decision and explicit action owner/deadline. Keep NOT and UNTIL conditions exactly. Copy timestamps only when explicitly present; do not create timestamp ranges. Do not add a meeting date, year, title, participant roles or action owners. Do not repeat facts in separate sections. Use at most 600 words. Output only the bullets. Example: source [00:00:12] Alex: I will send the contract by Friday. Correct note: [00:00:12] Alex will send the contract by Friday. Do not write that the contract was sent."
-    const val concise = "Write a short factual overview as one bullet list, at most 180 words. Preserve the main decisions, explicit action owners/deadlines, amounts and unresolved issues. Keep negations and conditions exactly. Do not infer owners, dates or decisions. Do not add headings or repeat facts. Output only the bullets."
-}

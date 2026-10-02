@@ -39,3 +39,13 @@ with ThreadPoolExecutor(max_workers=3) as pool:
         ('android-cli', 'https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip', 'sdk/cmdline-tools/latest'),
         ('gradle', 'https://services.gradle.org/distributions/gradle-8.9-bin.zip', 'gradle-8.9'),
     ]))
+
+# sherpa-onnx speech engine for Android (Kotlin API + arm64 native libraries), pinned by hash.
+SHERPA = ROOT / 'app/libs/sherpa-onnx-1.13.8.aar'
+SHERPA_SHA256 = '633c24321e06b1fe79feafa03ea16cbc0f8a286641e2da3559bac91bdb13bd96'
+if not SHERPA.exists():
+    SHERPA.parent.mkdir(parents=True, exist_ok=True)
+    print('Downloading: sherpa-onnx', flush=True)
+    urllib.request.urlretrieve('https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-1.13.8.aar', SHERPA)
+assert hashlib.file_digest(SHERPA.open('rb'), 'sha256').hexdigest() == SHERPA_SHA256, 'sherpa-onnx AAR hash mismatch'
+print('Ready: sherpa-onnx', flush=True)

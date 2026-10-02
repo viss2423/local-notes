@@ -16,3 +16,7 @@ build-log.txt
 *.wav
 *.parquet
 .kotlin/
+app/libs/*.aar
+
+__pycache__/
+*.pyc

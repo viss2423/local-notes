@@ -1,63 +1,40 @@
 # Local Notes
 
-An offline voice recorder for Android with live transcription and on-device summaries. It saves the original audio, shows text while you speak, and can produce a final transcript plus a short summary and detailed notes. No account, ads, API key or subscription. The app has no internet permission.
+An offline Android recorder for long English meetings. It saves the original audio, displays live words, improves finished paragraphs with a larger speech model, labels voices, and writes detailed notes plus a concise summary. No account, subscription or API key. The internet permission is used to download model files; recording and inference stay on the phone.
 
-Built for and tuned on a OnePlus 13R (Snapdragon 8 Gen 3, 12 GB RAM), English speech, recordings of several hours. Any 64-bit Android 12+ phone should run it; slower phones will show live text with more delay.
+Designed and tested on a OnePlus 13R. Other arm64 Android 12+ phones may be slower.
 
-## How it works
+## Install and use
 
-| Stage | What happens | Engine |
+1. Install the latest APK over the existing app. **Do not uninstall the old app**: Android deletes its private recordings on uninstall. The update uses the same signing key.
+2. In **Setup**, download the recommended models once: Kroko (live words, 57 MB), Parakeet (accuracy pass, 501 MB), Voice ID (speaker labels, 26 MB), and Gemma 4 E2B (notes and summaries, 3.3 GB). Downloads resume if interrupted. A smaller Qwen3.5 model is optional for summaries, but was less reliable with numbers in phone tests.
+3. Tap **Start recording**. Live draft words appear while you speak; finished utterances receive a speaker label. Tap any label to rename it. No name prompt interrupts recording.
+4. **Pause** or **Stop & save**. The recording is kept with its date, start/end time and pause history. You can view the transcript and export a ZIP containing the audio and text.
+
+The app uses a microphone foreground service when you leave it. On Android 16 it requests a promoted ongoing notification with a status-bar chip; the phone's OxygenOS version and notification settings decide whether a Fluid Cloud-style capsule is shown. The recording notification and Stop action remain available even if the system does not promote it.
+
+## Processing
+
+| Stage | Engine | Behavior |
 | --- | --- | --- |
-| Record | 16 kHz mono PCM written continuously (≈115 MB/hour), synced to storage every 5 s. Screen can be locked. | Android `AudioRecord` in a foreground service |
-| Live text | Draft text for the current sentence refreshes about every 2 s. Every 6–10 s, at the quietest moment, a section is committed to `live-transcript.txt`. Silence is skipped. | whisper.cpp, Base English Q5 (60 MB), encoder context sized to each clip |
-| Final transcript | Optional, after recording. 60 s sections, resumable, cached. More accurate than the live preview. | whisper.cpp, full 30 s context |
-| Summary and notes | Optional. Section notes, then a concise summary built from them. | llama.cpp, Qwen2.5 1.5B Instruct Q4_K_M (1.12 GB) |
+| Capture | Android AudioRecord | 16 kHz mono PCM, about 115 MB/hour; storage sync about every 5 seconds. |
+| Live speech | sherpa-onnx Kroko | Partial words update during speech; utterances close at a pause. |
+| Accuracy pass | sherpa-onnx Parakeet Unified 0.6B int8 | Rechecks each short paragraph behind the live text. Paragraphs never merge across detected speakers. |
+| Voice ID | 3D-Speaker ERes2Net English embedding model | Compares finished utterances locally; labels Speaker 1, Speaker 2, etc. in order of first detection. User names are stored separately. |
+| Notes and summary | llama.cpp + Gemma 4 E2B | Writes section notes and a concise overview, with a number guard that removes unsupported numeric claims. |
 
-### Start and end times
+Speaker detection needs a clean enough utterance and can make mistakes on overlap, noise, very short turns, or similar voices. The live label for unfinished words is provisional. Renaming a speaker changes its display name, not the recognized words. The accurate model improves different accents but no offline ASR can guarantee every word; check important names and numbers against the saved audio.
 
-The start time is the moment the first audio sample was captured, taken from Android's audio clock (`AudioRecord.getTimestamp`) rather than the moment the button was pressed. The end time is the moment the last sample was captured, or when you pressed Stop if the recording was paused. Pauses are logged, so every line of the transcript shows the time of day it was spoken. Everything is stored in `recording-info.json` as epoch milliseconds with time-zone IDs. Recordings are named by date and time (for example `Recording · 1 Oct 2026, 10:41`), and exports are named `2026-10-01 1041 <title>.zip`.
+Start time comes from the first captured audio frame where available. End time is the last captured frame, or the Stop press if paused. Pause periods are stored so transcript wall-clock times map back to when words were spoken.
 
-## Install
-
-1. Install the APK. To update, install the new APK over the old one and **do not uninstall first**, or your recordings are deleted.
-2. Open **Setup** → Speech recognition → **Download**, then **Import file** and choose `ggml-base.en-q5_1.bin` ([model file](https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-base.en-q5_1.bin)).
-3. Optional: do the same for the summary model ([qwen2.5-1.5b-instruct-q4_k_m.gguf](https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF/blob/main/qwen2.5-1.5b-instruct-q4_k_m.gguf)).
-4. **Record**. Words appear a few seconds after they are spoken. **Stop & save** when done.
-5. Open the recording → **Transcribe** for the final transcript, or **Transcribe and summarize**.
-6. **Export** creates a ZIP with the WAV, timing metadata, live text, transcript, notes and performance measurements.
-
-## Choosing a speech model
-
-Measured on a 20-thread Intel PC, CPU only, with 133 s of clean English speech (LibriSpeech). Phones are slower. WER is token word error rate (lower is better):
-
-| Model | Size | Time for 133 s | WER clean | WER 15 dB noise |
-| --- | --- | --- | --- | --- |
-| **base.en Q5_1** (default) | 60 MB | 7.5–8.9 s | 10.2 % | 11.2 % |
-| small.en Q5_1 | 190 MB | 35–91 s | 7.9 % | 10.6 % |
-| small.en | 488 MB | 28–64 s | 7.6 % | 10.2 % |
-| large-v3-turbo Q5_0 | 574 MB | 275–425 s | 5.9 % | 7.6 % |
-
-Larger models are more accurate but slower. Large-v3-turbo needed 3× real time even on the PC, so it is unsuitable for live text on a phone. Any whisper.cpp GGML model can still be imported and used for the final transcript. See [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) for method and limits. Faster engines for this hardware (for example NVIDIA Parakeet through sherpa-onnx, or the Snapdragon NPU through Qualcomm QNN) would need a separate inference stack and have not been integrated or tested.
-
-## Limits
-
-- **The audio is the source of truth.** Speech recognition misses words. The 1.5B summary model can omit facts, owners and timestamps, or change tense.
-- Live text is a preview. The final transcript can differ.
-- No speaker labels yet.
-- Phone timing, multi-hour screen-off reliability, battery and heat have not yet been measured on a device. Before relying on it for a long meeting, test a few minutes with known names and numbers, including a locked screen and an incoming call.
+In a four-voice, 44-turn phone replay, the acoustic speaker boundary correctly separated the known turns into four labels. Its first version produced 17.13% final word error because the live model echoed some words into silent fragments; the current build filters those fragments and still needs a final on-phone replay. A deliberately quiet replay of that first version (-26 dB relative level) had 12.12% word error but labeled only 5 segments, which prompted bounded input gain in the current build. These fixtures do not establish accuracy for all accents, quiet rooms, overlapping voices, or several-hour conversations. See the dated notes in [PROGRESS.md](../PROGRESS.md) for validation details; [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) records earlier v0.4 Whisper experiments and is historical.
 
 ## Build
 
-Requirements are downloaded locally, with no system installs: `python tools/bootstrap.py` fetches a portable JDK 17 and Gradle 8.9 into `.tools/`, and `tools/build.ps1 -Setup` installs Android SDK 35, NDK 27.2 and CMake 3.22.1. Then:
+`python tools/bootstrap.py` installs portable tooling under `.tools/` and fetches the pinned sherpa-onnx Android library. Use `tools/build.ps1 -Setup` once for the SDK and NDK, then `tools/build.ps1 -Tasks testDebugUnitTest,assembleRelease,lintDebug`.
 
-```powershell
-tools/build.ps1 -Tasks testDebugUnitTest,assembleDebug,lintDebug
-```
-
-Native engines are pinned to whisper.cpp v1.7.6 and llama.cpp b5046, with SHA-256 checks on the downloaded archives, and built with ARMv8.2 FP16 and dot-product support for arm64-v8a. Their license notices are bundled in `app/src/main/assets/licenses/`. Models and build tools are not part of this repository.
-
-APKs built this way are debug-signed with a key that stays on the build machine. An update must be signed with the same key, or Android refuses to install it over the old version.
+Models are downloaded by the installed app and are not included in the APK or repository. Release APKs from this workspace use the existing debug signing key so they install over earlier local builds. Keep that key safe; a different key requires an uninstall.
 
 ## License
 
-MIT. See [LICENSE](LICENSE). whisper.cpp and llama.cpp are MIT-licensed. Model weights carry their own licenses: Whisper is MIT, and Qwen2.5 is Apache 2.0.
+App code: MIT ([LICENSE](LICENSE)). sherpa-onnx and the downloadable 3D-Speaker model have their own open-source licenses; model terms and notices should be checked before redistribution.
