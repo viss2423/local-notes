@@ -13,6 +13,8 @@ Designed and tested on a OnePlus 13R. Other arm64 Android 12+ phones may be slow
 
 The app uses a microphone foreground service when you leave it. On Android 16 it requests a promoted ongoing notification with a status-bar chip; the phone's OxygenOS version and notification settings decide whether a Fluid Cloud-style capsule is shown. The recording notification and Stop action remain available even if the system does not promote it.
 
+In v0.7, live inference has a 60-second audio backlog limit. If it falls too far behind or its model fails, the app keeps saving microphone audio and queues a full transcription from that saved file after Stop. Reopen the app to resume any pending processing. A delayed transcript may temporarily be incomplete, but the preserved recording can be played or exported.
+
 ## Processing
 
 | Stage | Engine | Behavior |
@@ -34,6 +36,8 @@ On the OnePlus 13R, the final v0.6 build completed two four-minute, four-voice p
 `python tools/bootstrap.py` installs portable tooling under `.tools/` and fetches the pinned sherpa-onnx Android library. Use `tools/build.ps1 -Setup` once for the SDK and NDK, then `tools/build.ps1 -Tasks testDebugUnitTest,assembleRelease,lintDebug`.
 
 Models are downloaded by the installed app and are not included in the APK or repository. Release APKs from this workspace use the existing debug signing key so they install over earlier local builds. Keep that key safe; a different key requires an uninstall.
+
+See [the 4 October audit](AUDIT_2026-10-04.md) for security changes, competitor feature comparison, tested quality limits and iOS feasibility.
 
 ## License
 

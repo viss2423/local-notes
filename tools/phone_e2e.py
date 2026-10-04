@@ -123,11 +123,11 @@ def main():
             if out.strip(): return out
             time.sleep(10)
         return ''
-    # Some OnePlus builds create logcat -f's file but never write to it. The main
-    # log buffer still contains our bounded benchmark lines, so fall back there.
-    log_lines = sh('cat /data/local/tmp/ln/perf.log').splitlines()
+    # The main buffer was cleared at launch. OnePlus can leave the file logger
+    # empty or append stale lines from earlier runs, so prefer this bounded buffer.
+    log_lines = sh('logcat -d -v time -s LocalNotesPerf:I AndroidRuntime:E').splitlines()
     if not log_lines:
-        log_lines = sh('logcat -d -v time -s LocalNotesPerf:I AndroidRuntime:E').splitlines()
+        log_lines = sh('cat /data/local/tmp/ln/perf.log').splitlines()
     device_samples = []
     for line in pull('cat /data/local/tmp/ln/sample.log').splitlines():
         t, m = re.search(r'temperature: (\d+)', line), (re.search(r'TOTAL PSS:\s+(\d+)', line) or re.search(r'TOTAL\s+(\d+)', line))

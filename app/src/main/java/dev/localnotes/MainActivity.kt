@@ -2,12 +2,14 @@ package dev.localnotes
 
 import android.Manifest
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PersistableBundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,10 +41,14 @@ class MainActivity : ComponentActivity(), Actions {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 33) setRecentsScreenshotEnabled(false)
         enableEdgeToEdge()
         exportTarget = savedInstanceState?.getString("exportTarget")
         setContent { AppTheme { App(this) } }
         simulateFrom(intent)
+        if (!Store.busy.get() && !Live.recording.value && !ProcessingService.isRunning() && Store.sessions(this).any(ProcessingService::pending)) {
+            runCatching { startForegroundService(Intent(this, ProcessingService::class.java).setAction(ProcessingService.DRAIN)) }
+        }
     }
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); simulateFrom(intent) }
     /** Debug builds: `am start -n dev.localnotes/.MainActivity --es simulate <wav>` runs the full pipeline on a test file. */
@@ -109,7 +115,9 @@ class MainActivity : ComponentActivity(), Actions {
     }
     override fun copy(text: String) {
         if (text.toByteArray().size > 500_000) { toast("Too long for the clipboard. Use Export instead."); return }
-        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Local Notes", text))
+        val clip = ClipData.newPlainText("Local Notes", text)
+        clip.description.extras = PersistableBundle().apply { putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true) }
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
         if (Build.VERSION.SDK_INT < 33) toast("Copied")
     }
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_LONG).show()

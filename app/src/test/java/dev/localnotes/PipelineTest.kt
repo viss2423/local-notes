@@ -3,6 +3,8 @@ package dev.localnotes
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.ServerSocket
+import java.security.MessageDigest
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry
 import org.apache.commons.compress.archivers.tar.TarArchiveOutputStream
@@ -87,6 +89,20 @@ class PipelineTest {
         assertTrue(live.apply(veryQuiet, 0.0003f)[0] > veryQuiet[0] * 2)
     }
 
+    @Test fun stalledLiveRecognizerCannotBlockOrGrowTheRecordingQueue() {
+        val backlog = CaptureBacklog(2)
+        assertTrue(backlog.offer(floatArrayOf(1f)))
+        assertTrue(backlog.offer(floatArrayOf(2f)))
+        assertFalse(backlog.offer(floatArrayOf(3f)))
+        assertTrue(backlog.dropped)
+        assertEquals(0, backlog.size)
+        assertNull(backlog.poll(0, TimeUnit.MILLISECONDS))
+        assertFalse(backlog.offer(floatArrayOf(4f)))
+        backlog.reset()
+        assertFalse(backlog.dropped)
+        assertTrue(backlog.offer(floatArrayOf(5f)))
+    }
+
     @Test fun paragraphRecheckMergesSentencesAndKeepsIndicesStable() {
         val session = Store.create(context)
         val t = Transcript(session)
@@ -152,7 +168,7 @@ class PipelineTest {
         val archive = ByteArrayOutputStream().also { bytes ->
             TarArchiveOutputStream(BZip2CompressorOutputStream(bytes)).use { tar ->
                 val noise = ByteArray(300_000).also { java.util.Random(1).nextBytes(it) } // Incompressible, so the archive stays large.
-                for ((name, data) in listOf("m/encoder.onnx" to noise, "m/decoder.onnx" to "D".toByteArray(), "m/joiner.onnx" to "J".toByteArray(), "m/tokens.txt" to "a 0".toByteArray(), "m/test_wavs/0.wav" to "x".toByteArray())) {
+                for ((name, data) in listOf("m/encoder.onnx" to noise, "m/decoder.onnx" to "D".toByteArray(), "m/joiner.onnx" to "J".toByteArray(), "m/tokens.txt" to "a 0".toByteArray(), "m/test_wavs/0.wav" to "x".toByteArray(), "m/../../escape" to "unsafe".toByteArray())) {
                     tar.putArchiveEntry(TarArchiveEntry(name).apply { size = data.size.toLong() }); tar.write(data); tar.closeArchiveEntry()
                 }
             }
@@ -183,8 +199,9 @@ class PipelineTest {
         }
         try {
             // Starts at a redirect, as GitHub release downloads do.
+            val sha = MessageDigest.getInstance("SHA-256").digest(archive).joinToString("") { "%02x".format(it) }
             val spec = ModelSpec("test-live", Role.LIVE, "Test", "", "http://127.0.0.1:${server.localPort}/start.tar.bz2",
-                archive.size.toLong(), listOf("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"))
+                archive.size.toLong(), listOf("encoder.onnx", "decoder.onnx", "joiner.onnx", "tokens.txt"), sha256 = sha)
             // Simulate an interrupted earlier attempt: the first 1000 bytes are already on disk.
             File(Models.root(context), "test-live.part").writeBytes(archive.copyOf(1000))
             var last = 0L
@@ -194,14 +211,24 @@ class PipelineTest {
             assertTrue(Models.installed(context, spec))
             assertEquals(300_000L, File(Models.file(context, spec, "encoder.onnx")).length())
             assertFalse(File(Models.folder(context, spec), "test_wavs").exists())
+            assertFalse(File(context.filesDir, "escape").exists())
             assertFalse(File(Models.root(context), "test-live.part").exists())
+            val corrupt = spec.copy(id = "test-bad", sha256 = "0".repeat(64))
+            val failure = runCatching { Models.download(context, corrupt, { false }) { _, _ -> } }.exceptionOrNull()
+            assertTrue(failure?.message?.contains("verification failed") == true)
+            assertFalse(Models.installed(context, corrupt))
+            assertFalse(File(Models.root(context), "test-bad.part").exists())
         } finally { server.close() }
     }
 
     @Test fun activeModelPrefersChoiceThenRecommended() {
         val summary = Models.all.filter { it.role == Role.SUMMARY }
         assertNull(Models.active(context, Role.SUMMARY))
-        for (spec in summary) { Models.folder(context, spec).mkdirs(); File(Models.folder(context, spec), ".complete").writeText("x") }
+        for (spec in summary) {
+            Models.folder(context, spec).mkdirs()
+            File(Models.folder(context, spec), ".complete").writeText("x")
+            spec.files.forEach { File(Models.folder(context, spec), it).writeText("model") }
+        }
         assertEquals(summary.first { it.recommended }.id, Models.active(context, Role.SUMMARY)!!.id)
         val other = summary.first { !it.recommended }
         Models.choose(context, other)

@@ -31,8 +31,10 @@ class RecorderService : Service() {
     @Volatile private var stoppedAt = 0L
     private var notificationStartMs = 0L
     private var worker: Thread? = null
-    private val audioQueue = LinkedBlockingQueue<FloatArray>()
+    private val audioQueue = CaptureBacklog(600) // At most 60 s of 100 ms chunks, even on a multi-hour recording.
     private val refineQueue = LinkedBlockingQueue<Int>()
+    @Volatile private var liveIncompleteAlerted = false
+    @Volatile private var liveFailed = false
     @Volatile private var liveDone = false
     @Volatile private var refineDone = false
     /** Debug builds only: a 16 kHz mono 16-bit WAV played in real time instead of the microphone, for on-device tests. */
@@ -60,7 +62,7 @@ class RecorderService : Service() {
         }
         // Fresh state for this recording (Android may reuse the service instance right after the last one).
         stopping = false; captureDone = false; liveDone = false; refineDone = false; lastAudioAt = 0L; stoppedAt = 0L
-        audioQueue.clear(); refineQueue.clear()
+        audioQueue.reset(); refineQueue.clear(); liveIncompleteAlerted = false; liveFailed = false
         simulate = if (BuildConfig.DEBUG) intent?.getStringExtra("simulate")?.let(::File)?.takeIf { it.exists() } else null
         try {
             val session = Store.create(this)
@@ -88,24 +90,36 @@ class RecorderService : Service() {
             simulate?.let { simulateCapture(session, it) } ?: capture(session)
         } finally {
             captureDone = true
-            // Interrupt a section that is being written right now; it is redone by the summary job.
-            Language.requestStop()
-            Live.recording.value = false; Live.paused.value = false; Live.working.value = true
-            Notifications.show(this, "Finishing the transcript", 1, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-            val finishing = System.currentTimeMillis()
-            helpers.forEach { runCatching { it.join() } }
-            Log.i(PERF, "transcript_final_ms=${System.currentTimeMillis() - finishing} segments=${transcript.size()} words=${transcript.words()}")
-            // The final notes and summary run as a separate, pausable job so the microphone is free again now.
-            if (Models.active(this, Role.SUMMARY) != null && transcript.words() > 0) {
-                Store.write(File(session, SUMMARY_PENDING), "")
-                runCatching { startForegroundService(Intent(this, ProcessingService::class.java).setAction(ProcessingService.DRAIN)) }
+            try {
+                // Interrupt a section that is being written right now; it is redone by the summary job.
+                Language.requestStop()
+                Live.recording.value = false; Live.paused.value = false; Live.working.value = true
+                Notifications.show(this, "Finishing the transcript", 1, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+                val finishing = System.currentTimeMillis()
+                helpers.forEach { runCatching { it.join() } }
+                Log.i(PERF, "transcript_final_ms=${System.currentTimeMillis() - finishing} segments=${transcript.size()} words=${transcript.words()}")
+                // A full, preserved PCM file is the source of truth if live inference could not keep up.
+                val recover = (audioQueue.dropped || liveFailed) && Models.active(this, Role.ACCURATE) != null && Models.vadPath(this) != null
+                if (recover) Store.write(File(session, ProcessingService.TRANSCRIBE_PENDING), "")
+                val summarize = Models.active(this, Role.SUMMARY) != null && (transcript.words() > 0 || recover)
+                if (summarize) Store.write(File(session, SUMMARY_PENDING), "")
+                Store.write(File(session, "state.txt"), "done")
+                Live.working.value = false; Live.summaryStatus.value = ""; Live.session.value = null
+                // Clear the active-session guard before the job starts, or it may skip its own pending session.
+                if (recover || summarize) runCatching {
+                    startForegroundService(Intent(this, ProcessingService::class.java).setAction(ProcessingService.DRAIN))
+                }.onFailure { Live.status.value = "Recording saved. Open the app to finish processing: ${it.message}" }
+            } catch (error: Exception) {
+                Log.e(PERF, "Could not finish recording", error)
+                Live.status.value = "Audio saved, but finishing failed: ${error.message}"
+                runCatching { Store.write(File(session, "state.txt"), "Audio saved. Processing is incomplete.") }
+            } finally {
+                if (wake.isHeld) wake.release()
+                Live.recording.value = false; Live.working.value = false; Live.session.value = null
+                // Always free the microphone and allow another recording after a storage or processing error.
+                stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
+                Store.busy.set(false)
             }
-            Store.write(File(session, "state.txt"), "done")
-            Live.working.value = false; Live.summaryStatus.value = ""; Live.session.value = null
-            if (wake.isHeld) wake.release()
-            // Leave the foreground and stop only this start request, then free the microphone for the next one.
-            stopForeground(STOP_FOREGROUND_REMOVE); stopSelf()
-            Store.busy.set(false)
         }
     }
 
@@ -163,7 +177,7 @@ class RecorderService : Service() {
                     captured += count
                     lastAudioAt = wallAt(framesRead, returnedAt)
                     val samples = FloatArray(count / 2) { i -> ((buffer[i * 2].toInt() and 255) or (buffer[i * 2 + 1].toInt() shl 8)).toShort() / 32768f }
-                    audioQueue.put(samples)
+                    queueLive(samples)
                     var sum = 0.0; for (v in samples) sum += v * v
                     Live.level.value = (sqrt(sum / samples.size).toFloat() * 6f).coerceIn(0f, 1f)
                     Live.elapsedMs.value = captured / 32
@@ -183,9 +197,18 @@ class RecorderService : Service() {
         }
     }
 
+    private fun queueLive(samples: FloatArray) {
+        if (!audioQueue.offer(samples) && !liveIncompleteAlerted) {
+            liveIncompleteAlerted = true
+            Live.partial.value = ""
+            Live.status.value = "Live text fell behind. Full audio is safe and will be transcribed after Stop."
+            Log.w(PERF, "Live audio backlog exceeded 60 seconds; saved audio will be reprocessed")
+        }
+    }
+
     private fun liveLoop(session: File, transcript: Transcript) {
         val spec = Models.active(this, Role.LIVE)
-        if (spec == null) { Live.status.value = "Recording without live text. Download a speech model in Setup."; liveDone = true; drainAudio(); return }
+        if (spec == null) { liveFailed = true; Live.status.value = "Recording without live text. Download a speech model in Setup."; liveDone = true; drainAudio(); return }
         var speaker = Models.active(this, Role.SPEAKER)?.let { voiceModel ->
             runCatching { SpeakerEngine(this, voiceModel) }.onFailure {
                 Log.w(PERF, "Voice ID unavailable", it)
@@ -209,7 +232,7 @@ class RecorderService : Service() {
             LiveRecognizer(this, spec, Tuning.liveThreads).use { live ->
                 while (true) {
                     val chunk = audioQueue.poll(200, TimeUnit.MILLISECONDS)
-                    if (chunk == null) { if (captureDone) break else continue }
+                    if (chunk == null) { if (captureDone || audioQueue.dropped) break else continue }
                     live.accept(chunk)?.let { raw ->
                         val segment = label(raw)
                         Log.i(PERF, "live_segment end_ms=${segment.endMs} audio_ms=${Live.elapsedMs.value} lag_ms=${Live.elapsedMs.value - segment.endMs} queue=${audioQueue.size}")
@@ -220,6 +243,7 @@ class RecorderService : Service() {
                 live.flush()?.let { refineQueue.put(transcript.add(label(it))) }
             }
         } catch (error: Throwable) {
+            liveFailed = true
             Live.status.value = "Live text stopped: ${error.message}. Audio is still saved."
             drainAudio()
         } finally { runCatching { speaker?.close() }; Live.partial.value = ""; liveDone = true }
@@ -277,7 +301,7 @@ class RecorderService : Service() {
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             // While recording: notes for each finished section, and a refreshed overview every few minutes.
             // Everything left at Stop is done by the summary job (ProcessingService), which can be paused.
-            while (!captureDone) {
+            while (!captureDone && !audioQueue.dropped) {
                 if (Thermal.hot(this)) { Live.summaryStatus.value = "Phone is warm: notes will be written after recording"; Thread.sleep(5000); continue }
                 if (writer == null && transcript.words() >= NotesBuilder.SECTION_WORDS) {
                     // A paused summary job must have exited before the shared stop flag is cleared.
@@ -316,7 +340,7 @@ class RecorderService : Service() {
                     val n = input.readNBytes(buffer, 0, buffer.size); if (n <= 0) break
                     output.write(buffer, 0, n); captured += n
                     val samples = FloatArray(n / 2) { i -> ((buffer[i * 2].toInt() and 255) or (buffer[i * 2 + 1].toInt() shl 8)).toShort() / 32768f }
-                    audioQueue.put(samples)
+                    queueLive(samples)
                     var sum = 0.0; for (v in samples) sum += v * v
                     Live.level.value = (sqrt(sum / samples.size).toFloat() * 6f).coerceIn(0f, 1f)
                     Live.elapsedMs.value = captured / 32
@@ -337,6 +361,24 @@ class RecorderService : Service() {
         const val OVERVIEW_EVERY_MS = 5 * 60_000L
         const val SUMMARY_PENDING = "summary-pending"
     }
+}
+
+/** Never let a stalled recognizer consume unbounded memory or block microphone capture. */
+class CaptureBacklog(capacity: Int) {
+    private val queue = LinkedBlockingQueue<FloatArray>(capacity)
+    @Volatile var dropped = false
+        private set
+    val size: Int get() = queue.size
+    fun offer(samples: FloatArray): Boolean {
+        if (dropped) return false
+        if (queue.offer(samples)) return true
+        dropped = true
+        queue.clear()
+        return false
+    }
+    fun poll(timeout: Long, unit: TimeUnit): FloatArray? = queue.poll(timeout, unit)
+    fun clear() = queue.clear()
+    fun reset() { queue.clear(); dropped = false }
 }
 
 /**
