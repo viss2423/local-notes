@@ -33,6 +33,28 @@ class ProcessingService : Service() {
         }
         fun isRunning() = running.get()
         fun pending(session: File) = File(session, RecorderService.SUMMARY_PENDING).exists() || File(session, TRANSCRIBE_PENDING).exists()
+
+        /** Recover audio left by an abrupt app/process exit; the PCM file remains the source of truth. */
+        fun recoverInterrupted(context: Context) {
+            if (Store.busy.get() || Live.recording.value) return
+            if (Models.active(context, Role.ACCURATE) == null || Models.vadPath(context) == null) return
+            Store.sessions(context).forEach { session ->
+                val state = File(session, "state.txt")
+                val audio = File(session, "audio.pcm")
+                val message = runCatching { state.readText() }.getOrNull().orEmpty()
+                if ((!message.startsWith("Recording was interrupted.") && !message.startsWith("Audio saved. Processing is incomplete."))
+                    || audio.length() == 0L || pending(session)) return@forEach
+                val samples = audio.length() / 2
+                if (RecordingInfo.endEpoch(session) == null) {
+                    val end = RecordingInfo.wallClockAt(session, samples * 1000 / RATE)
+                        ?: audio.lastModified().takeIf { it > 0 } ?: System.currentTimeMillis()
+                    RecordingInfo.finish(session, end, samples, interrupted = true)
+                }
+                Store.write(File(session, TRANSCRIBE_PENDING), "")
+                if (Models.active(context, Role.SUMMARY) != null) Store.write(File(session, RecorderService.SUMMARY_PENDING), "")
+                Store.write(state, "done")
+            }
+        }
     }
     @Volatile private var cancelled = false
     @Volatile private var again = false

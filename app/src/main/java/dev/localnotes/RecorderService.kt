@@ -330,6 +330,7 @@ class RecorderService : Service() {
     private fun simulateCapture(session: File, wav: File) {
         val start = System.currentTimeMillis()
         RecordingInfo.start(session, start, "simulated")
+        Store.write(File(session, "state.txt"), "Recording was interrupted. The saved audio can still be transcribed.")
         Store.write(File(session, "title.txt"), "Test · ${wav.nameWithoutExtension}")
         var captured = 0L
         FileOutputStream(File(session, "audio.pcm")).use { output ->

@@ -9,6 +9,8 @@ Usage: python tools/phone_e2e.py --live kroko-en --accurate parakeet-unified --s
 """
 from pathlib import Path
 import argparse, json, re, subprocess, threading, time
+import jiwer
+from whisper_normalizer.english import EnglishTextNormalizer
 
 ROOT = Path(__file__).resolve().parents[1]
 BENCH = ROOT / '.tools/bench'
@@ -68,6 +70,8 @@ def main():
     ap.add_argument('--wav', default='meeting'); ap.add_argument('--tag', default='')
     ap.add_argument('--score-session', default='', help='only score an existing recording (its folder name)')
     ap.add_argument('--overlap', action='store_true', help='start a second recording right after the first stops (summary still running)')
+    ap.add_argument('--background', action='store_true', help='leave the app after recording starts to exercise its foreground service')
+    ap.add_argument('--skip-wer', action='store_true', help='skip whole-file WER for multi-hour endurance runs')
     a = ap.parse_args()
     tag = a.tag or f'{a.live}+{a.accurate}+{a.summary}+{a.wav}'
     require_device()
@@ -99,13 +103,16 @@ def main():
     else:
         sh('input keyevent KEYCODE_WAKEUP'); sh('wm dismiss-keyguard')
         sh(f'am start -f 0x30000000 -n {PKG}/.MainActivity --es simulate /data/user/0/{PKG}/files/test.wav')
+        if a.background:
+            time.sleep(3)
+            sh('input keyevent KEYCODE_HOME')
         expected = 2 if a.overlap else 1
         while time.time() - t0 < 6 * 3600:
             time.sleep(2 if a.overlap and not overlap_started else 10)
             temp = re.search(r'temperature: (\d+)', sh('dumpsys battery'))
             mem = re.search(r'TOTAL PSS:\s+(\d+)', sh(f'dumpsys meminfo {PKG}')) or re.search(r'TOTAL\s+(\d+)', sh(f'dumpsys meminfo {PKG}'))
             samples.append({'t': round(time.time() - t0), 'temp_c': int(temp.group(1)) / 10 if temp else None, 'pss_mb': int(mem.group(1)) // 1024 if mem else None})
-            if shots < 3 and time.time() - t0 > 60 + shots * 60:
+            if not a.background and shots < 3 and time.time() - t0 > 60 + shots * 60:
                 with open(OUT / f'{tag}-screen{shots}.png', 'wb') as f:
                     f.write(subprocess.run([ADB, 'exec-out', 'screencap', '-p'], capture_output=True).stdout)
                 shots += 1
@@ -146,15 +153,18 @@ def main():
     (OUT / f'{tag}-summary.md').write_text(summary, encoding='utf-8'); (OUT / f'{tag}-notes.md').write_text(notes, encoding='utf-8')
     segs = json.loads(seg_raw) if seg_raw.strip().startswith('[') else []
     # Scoring
-    import jiwer
-    from whisper_normalizer.english import EnglishTextNormalizer
     norm = EnglishTextNormalizer()
     ref_file = BENCH / 'eval' / (f'{a.wav}-ref.txt' if (BENCH / 'eval' / f'{a.wav}-ref.txt').exists() else f'streams/{a.wav}.txt')
     ref = norm(ref_file.read_text(encoding='utf-8'))
     final = norm(' '.join(s['t'] for s in segs))
     def nums(key): return [float(m) for m in re.findall(rf'{key}=(-?\d+)', '\n'.join(log_lines))]
     live_lag = nums('lag_ms'); refine_behind = nums('behind_ms'); refine_took = nums('took_ms')
-    res = {'segments': len(segs), 'refined': sum(1 for s in segs if s.get('r')), 'final_wer': round(jiwer.wer(ref, final or 'x') * 100, 2),
+    info = run_as(f'cat files/sessions/{session}/recording-info.json 2>/dev/null')
+    audio_bytes = run_as(f'wc -c < files/sessions/{session}/audio.pcm 2>/dev/null').strip()
+    res = {'segments': len(segs), 'refined': sum(1 for s in segs if s.get('r')),
+           'final_wer': None if a.skip_wer else round(jiwer.wer(ref, final or 'x') * 100, 2),
+           'audio_bytes': int(audio_bytes) if audio_bytes.isdigit() else None,
+           'recording_info': json.loads(info) if info.strip().startswith('{') else None,
            'live_lag_ms_median': sorted(live_lag)[len(live_lag) // 2] if live_lag else None, 'live_lag_ms_max': max(live_lag) if live_lag else None,
            'refine_behind_ms_median': sorted(refine_behind)[len(refine_behind) // 2] if refine_behind else None,
            'refine_behind_ms_max': max(refine_behind) if refine_behind else None,

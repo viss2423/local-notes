@@ -20,11 +20,11 @@ fun boostQuiet(samples: FloatArray): FloatArray {
 }
 
 /** Smoothed live gain avoids sudden jumps between 100 ms microphone reads. */
-class LiveInputGain {
+class LiveInputGain(private val maxGain: Float = 16f) {
     private var gain = 1f
     fun apply(samples: FloatArray, rms: Float): FloatArray {
         if (rms >= 0.006f) gain = 1f
-        else if (rms >= 0.00015f) gain += ((0.045f / rms).coerceAtMost(16f) - gain) * 0.5f
+        else if (rms >= 0.00015f) gain += ((0.045f / rms).coerceAtMost(maxGain) - gain) * 0.5f
         if (gain < 1.1f) return samples
         val peak = samples.maxOf { kotlin.math.abs(it) }
         val safe = minOf(gain, if (peak > 0f) 0.98f / peak else gain)
@@ -60,7 +60,9 @@ class LiveRecognizer(context: Context, spec: ModelSpec, threads: Int = 2) : Clos
     private var fed = 0L
     private var quietSamples = 0
     private var heardSignal = false
-    private val inputGain = LiveInputGain()
+    // A 4x ceiling beat the former 16x ceiling on a 48-clip quiet-accent sample;
+    // VAD keeps its stronger gain for detecting very faint speech.
+    private val inputGain = LiveInputGain(4f)
     var partial = ""; private set
 
     /** Feeds [samples]; returns a finished sentence when a pause ends one. */

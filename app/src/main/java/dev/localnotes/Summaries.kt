@@ -136,13 +136,16 @@ object Prompts {
  * overview remain, so the summary is ready seconds after recording stops.
  */
 class NotesBuilder(private val session: File, private val transcript: Transcript) {
-    companion object { const val SECTION_WORDS = 500 }
+    companion object { const val SECTION_WORDS = 500; private const val OVERVIEW_SOURCE_WORDS = 2000 }
     private val folder = File(session, "notes").apply { mkdirs() }
     private val index = File(folder, "sections.json")
+    private val overviewProgress = File(folder, "overview-progress.txt")
     /** Sections done so far: segment ranges and their notes file. */
     private val sections = mutableListOf<JSONObject>()
     init { runCatching { JSONArray(index.readText()) }.getOrNull()?.let { a -> for (i in 0 until a.length()) sections += a.getJSONObject(i) } }
-    private var overviewFrom = sections.size
+    private var overviewFrom = if (File(session, "summary.md").isFile)
+        overviewProgress.takeIf(File::isFile)?.readText()?.toIntOrNull()?.coerceIn(0, sections.size) ?: sections.size
+        else 0
 
     fun summarizedSegments() = sections.lastOrNull()?.getInt("to") ?: 0
     fun sectionCount() = sections.size
@@ -179,16 +182,38 @@ class NotesBuilder(private val session: File, private val transcript: Transcript
         return true
     }
 
-    fun overviewDue() = sections.size > overviewFrom
-    /** Rewrites the overview from all section notes. */
+    fun overviewDue() = sections.size > overviewFrom || (sections.isNotEmpty() && !File(session, "summary.md").isFile)
+    /** Incrementally covers every section while keeping each model prompt below its input limit. */
     fun overview(writer: TextModel) {
         if (sections.isEmpty()) return
         Live.summaryStatus.value = "Updating the summary"
-        val notes = detailed()
-        val text = NumberGuard.filter(writer.write(Prompts.system, Prompts.overview(notes), 800, start = "## In short\n") { Live.summaryDraft.value = it }, notes)
-        Store.write(File(session, "summary.md"), text)
-        overviewFrom = sections.size
-        Live.summaryDraft.value = ""; Live.notesVersion.value++
+        val summary = File(session, "summary.md")
+        if (!summary.isFile) overviewFrom = 0
+        var previous = if (overviewFrom > 0) summary.readText() else ""
+        while (overviewFrom < sections.size) {
+            val source = StringBuilder(previous)
+            var words = previous.split(Regex("\\s+")).count(String::isNotBlank)
+            var next = overviewFrom
+            do {
+                val part = File(folder, sections[next].getString("file")).readText()
+                val partWords = part.split(Regex("\\s+")).count(String::isNotBlank)
+                if (next > overviewFrom && words + partWords > OVERVIEW_SOURCE_WORDS) break
+                if (source.isNotEmpty()) source.append('\n')
+                source.append(part)
+                words += partWords
+                next++
+            } while (next < sections.size)
+            val input = source.toString()
+            val text = NumberGuard.filter(writer.write(Prompts.system, Prompts.overview(input), 800, start = "## In short\n") {
+                Live.summaryDraft.value = it
+            }, input)
+            check(text.isNotBlank()) { "The summary model returned no usable text; detailed notes are saved." }
+            Store.write(summary, text)
+            overviewFrom = next
+            Store.write(overviewProgress, overviewFrom.toString())
+            previous = text
+            Live.summaryDraft.value = ""; Live.notesVersion.value++
+        }
     }
 
     fun detailed(): String = sections.joinToString("\n") { File(folder, it.getString("file")).takeIf(File::exists)?.readText().orEmpty() }

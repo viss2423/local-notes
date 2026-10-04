@@ -7,13 +7,13 @@ Designed and tested on a OnePlus 13R. Other arm64 Android 12+ phones may be slow
 ## Install and use
 
 1. Install the latest APK over the existing app. **Do not uninstall the old app**: Android deletes its private recordings on uninstall. The update uses the same signing key.
-2. In **Setup**, download the recommended models once: Kroko (live words, 57 MB), Parakeet (accuracy pass, 501 MB), Voice ID (speaker labels, 26 MB), and Gemma 4 E2B (notes and summaries, 3.3 GB). Downloads resume if interrupted. A smaller Qwen3.5 model is optional for summaries, but was less reliable with numbers in phone tests.
+2. In **Setup**, download the recommended models once: Kroko (live words, 57 MB), Parakeet Unified (accuracy pass, 501 MB), Voice ID (speaker labels, 26 MB), and Gemma 4 E2B (notes and summaries, 3.3 GB). Downloads resume if interrupted. Parakeet TDT v2 is an optional 482 MB accuracy model: it scored slightly better overall on a 48-clip varied-accent PC sample, though results varied by accent. A smaller Qwen3.5 model is optional for summaries, but was less reliable with numbers in phone tests.
 3. Tap **Start recording**. Live draft words appear while you speak; finished utterances receive a speaker label. Tap any label to rename it. No name prompt interrupts recording.
 4. **Pause** or **Stop & save**. The recording is kept with its date, start/end time and pause history. You can view the transcript and export a ZIP containing the audio and text.
 
 The app uses a microphone foreground service when you leave it. On Android 16 it requests a promoted ongoing notification with a status-bar chip; the phone's OxygenOS version and notification settings decide whether a Fluid Cloud-style capsule is shown. The recording notification and Stop action remain available even if the system does not promote it.
 
-In v0.7, live inference has a 60-second audio backlog limit. If it falls too far behind or its model fails, the app keeps saving microphone audio and queues a full transcription from that saved file after Stop. Reopen the app to resume any pending processing. A delayed transcript may temporarily be incomplete, but the preserved recording can be played or exported.
+Live inference has a 60-second audio backlog limit. If it falls too far behind or its model fails, the app keeps saving microphone audio and queues a full transcription from that saved file after Stop. In v0.8, an interrupted recording is also recovered from its saved audio when the app reopens; the end time is reconstructed from captured samples and recorded pauses. Long summaries are processed in bounded batches and resume from the last saved batch. A delayed transcript may temporarily be incomplete, but the preserved recording can be played or exported.
 
 ## Processing
 
@@ -21,7 +21,7 @@ In v0.7, live inference has a 60-second audio backlog limit. If it falls too far
 | --- | --- | --- |
 | Capture | Android AudioRecord | 16 kHz mono PCM, about 115 MB/hour; storage sync about every 5 seconds. |
 | Live speech | sherpa-onnx Kroko | Partial words update during speech; utterances close at a pause. |
-| Accuracy pass | sherpa-onnx Parakeet Unified 0.6B int8 | Rechecks each short paragraph behind the live text. Paragraphs never merge across detected speakers. |
+| Accuracy pass | sherpa-onnx Parakeet Unified 0.6B int8; optional TDT v2 0.6B int8 | Rechecks each short paragraph behind the live text. Paragraphs never merge across detected speakers. |
 | Voice ID | 3D-Speaker ERes2Net English embedding model | Compares finished utterances locally; labels Speaker 1, Speaker 2, etc. in order of first detection. User names are stored separately. |
 | Notes and summary | llama.cpp + Gemma 4 E2B | Writes section notes and a concise overview, with a number guard that removes unsupported numeric claims. |
 

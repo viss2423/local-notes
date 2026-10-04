@@ -2,6 +2,7 @@ package dev.localnotes
 
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.RandomAccessFile
 import java.net.ServerSocket
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -87,6 +88,8 @@ class PipelineTest {
         assertEquals(normal[0], live.apply(normal, 0.05f)[0], 0.0001f)
         val veryQuiet = FloatArray(1600) { 0.0003f }
         assertTrue(live.apply(veryQuiet, 0.0003f)[0] > veryQuiet[0] * 2)
+        val speechGain = LiveInputGain(4f)
+        repeat(10) { assertTrue(speechGain.apply(quiet, 0.002f)[0] <= quiet[0] * 4f) }
     }
 
     @Test fun stalledLiveRecognizerCannotBlockOrGrowTheRecordingQueue() {
@@ -140,6 +143,35 @@ class PipelineTest {
         assertEquals(3, model.prompts.size)
     }
 
+    @Test fun multiHourOverviewUsesBoundedPromptsAndResumesAfterFailure() {
+        val session = Store.create(context)
+        val folder = File(session, "notes").apply { mkdirs() }
+        val index = org.json.JSONArray()
+        repeat(12) { i ->
+            val name = "section-%03d.md".format(i + 1)
+            File(folder, name).writeText("### Hour ${i / 4}\n" + words(600, "section$i"))
+            index.put(org.json.JSONObject().put("from", i).put("to", i + 1).put("file", name))
+        }
+        File(folder, "sections.json").writeText(index.toString())
+        val model = FakeModel()
+        val interrupted = object : TextModel {
+            var calls = 0
+            override fun write(system: String, user: String, maxTokens: Int, start: String, onText: (String) -> Unit): String {
+                if (++calls == 3) throw InterruptedException("test stop")
+                return model.write(system, user, maxTokens, start, onText)
+            }
+        }
+        assertThrows(InterruptedException::class.java) { NotesBuilder(session, Transcript(session)).overview(interrupted) }
+        assertEquals("6", File(folder, "overview-progress.txt").readText())
+        val resumed = FakeModel()
+        NotesBuilder(session, Transcript(session)).overview(resumed)
+        assertEquals("12", File(folder, "overview-progress.txt").readText())
+        assertEquals(2, resumed.prompts.size)
+        assertTrue(resumed.prompts.last().contains("section11"))
+        assertTrue((model.prompts + resumed.prompts).all { it.split(Regex("\\s+")).size < 2100 })
+        assertFalse(NotesBuilder(session, Transcript(session)).overviewDue())
+    }
+
     @Test fun wallClockAccountsForPauses() {
         val session = Store.create(context)
         val start = 1_780_000_000_123L
@@ -151,6 +183,30 @@ class PipelineTest {
         assertEquals(start + 75_000, RecordingInfo.wallClockAt(session, 15_000))
         assertEquals(start + 90_765, RecordingInfo.endEpoch(session))
         assertEquals("audio-clock", RecordingInfo.read(session)!!.getString("clockSource"))
+    }
+
+    @Test fun interruptedThreeHourRecordingKeepsAudioAndRecoversItsTime() {
+        val accurate = Models.all.first { it.role == Role.ACCURATE }
+        for (spec in listOf(accurate, Models.vad)) {
+            val folder = Models.folder(context, spec).apply { mkdirs() }
+            spec.files.forEach { File(folder, it).writeText("test") }
+            File(folder, ".complete").writeText("test")
+        }
+        val session = Store.create(context)
+        val start = 1_780_000_000_000L
+        RecordingInfo.start(session, start, "audio-clock")
+        RecordingInfo.pause(session, 3600L * RATE, start + 3_600_000)
+        RecordingInfo.resume(session, start + 3_900_000)
+        File(session, "state.txt").writeText("Recording was interrupted. The saved audio can still be transcribed.")
+        RandomAccessFile(File(session, "audio.pcm"), "rw").use { it.setLength(3L * 3600 * RATE * 2) }
+        ProcessingService.recoverInterrupted(context)
+        assertEquals(start + 3L * 3600 * 1000 + 300_000, RecordingInfo.endEpoch(session))
+        assertEquals(3L * 3600 * RATE, RecordingInfo.read(session)!!.getLong("capturedSamples"))
+        assertTrue(RecordingInfo.read(session)!!.getBoolean("interrupted"))
+        assertTrue(File(session, ProcessingService.TRANSCRIBE_PENDING).exists())
+        assertEquals("done", File(session, "state.txt").readText())
+        ProcessingService.recoverInterrupted(context)
+        assertEquals(start + 3L * 3600 * 1000 + 300_000, RecordingInfo.endEpoch(session))
     }
 
     @Test fun readAudioReturnsPaddedRange() {

@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity(), Actions {
         exportTarget = savedInstanceState?.getString("exportTarget")
         setContent { AppTheme { App(this) } }
         simulateFrom(intent)
+        ProcessingService.recoverInterrupted(this)
         if (!Store.busy.get() && !Live.recording.value && !ProcessingService.isRunning() && Store.sessions(this).any(ProcessingService::pending)) {
             runCatching { startForegroundService(Intent(this, ProcessingService::class.java).setAction(ProcessingService.DRAIN)) }
         }
