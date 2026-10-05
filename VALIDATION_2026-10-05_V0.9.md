@@ -15,6 +15,6 @@ Android/Robolectric: 29 tests passed (5 chunking, 17 pipeline, 7 UI), including 
 
 The final APK is `dist/LocalNotes-0.9.0.apk` (38,830,871 bytes), package `dev.localnotes`, version code 9, version name 0.9.0. SHA-256: `56759917103B956887600BA42B5587DD32834CBAA5A977DAFD5F88CC5840CF83`. Android `apksigner` verified its v2 signature; signer certificate SHA-256 `638371cd162ac48cbefc889246f32fbf88db427cdda7f148bbdd53ceb42fccc6` matches v0.8, so the update can install over the existing app without removing its private recordings.
 
-This validates the PCM/WAV data source and rendered controls on the host. Android `MediaPlayer` decoding, real microphone capture, notification behavior, power management, speaker accuracy, and a multi-hour recording still require the OnePlus 13R after it is reconnected. No iOS build is claimed.
+These checks validate the PCM/WAV data source and rendered controls on the host. Subsequent release playback and real-time synthetic recording tests on the OnePlus are documented in [v0.9 phone validation](VALIDATION_2026-10-05_V0.9_PHONE.md). Several-hour reliability, live microphone speech, sustained display-off behavior, and iOS remain untested.
 
 Playback uses Android's [MediaDataSource](https://developer.android.com/reference/android/media/MediaDataSource) and [MediaPlayer](https://developer.android.com/reference/android/media/MediaPlayer) APIs. Previous accent and quiet-speech measurements are in [v0.8 validation](VALIDATION_2026-10-04_V0.8.md).
