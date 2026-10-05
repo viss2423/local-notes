@@ -13,20 +13,25 @@ class SessionView(val dir: File) {
         ?: RecordingInfo.defaultTitle(RecordingInfo.startEpoch(dir))
     val startMs = RecordingInfo.startEpoch(dir)
     val durationMs = File(dir, "audio.pcm").length() / 32
-    val transcript = Transcript(dir)
-    private val legacyRun: File? = File(dir, "current-run.txt").takeIf { it.exists() }?.readText()
+    val transcript by lazy { Transcript(dir) }
+    private val legacyRun: File? by lazy { File(dir, "current-run.txt").takeIf { it.exists() }?.readText()
         ?.takeIf { it.matches(Regex("run-[a-f0-9]{20}")) }?.let { File(dir, it) }
+    }
 
-    val summary: String? = File(dir, "summary.md").takeIf { it.exists() }?.readText()
+    val summary: String? by lazy { File(dir, "summary.md").takeIf { it.exists() }?.readText()
         ?: legacyRun?.let { File(it, "concise.md") }?.takeIf { it.exists() }?.readText()
-    val notes: String? = NotesBuilder(dir, transcript).detailed().takeIf { it.isNotBlank() }
+    }
+    val notes: String? by lazy { NotesBuilder(dir, transcript).detailed().takeIf { it.isNotBlank() }
         ?: legacyRun?.let { File(it, "detailed.md") }?.takeIf { it.exists() }?.readText()
+    }
     /** Transcript from v0.4 (final pass, else live preview) when there are no segments. */
-    val legacyTranscript: String? = if (transcript.size() > 0) null else
+    val legacyTranscript: String? by lazy { if (transcript.size() > 0) null else
         legacyRun?.let { File(it, "transcript.txt") }?.takeIf { it.exists() }?.readText()
             ?: File(dir, "live-transcript.txt").takeIf { it.exists() }?.readText()
-    val error: String? = File(dir, "error.txt").takeIf { it.exists() }?.readText()
-    val pauses: Int = RecordingInfo.read(dir)?.optJSONArray("pauses")?.length() ?: 0
+    }
+    val error: String? by lazy { File(dir, ProcessingService.PROCESSING_ERROR).takeIf { it.exists() }?.readText()
+        ?: File(dir, "error.txt").takeIf { it.exists() }?.readText() }
+    val pauses: Int by lazy { RecordingInfo.read(dir)?.optJSONArray("pauses")?.length() ?: 0 }
 
     fun range() = RecordingInfo.displayRange(dir)
     fun date() = RecordingInfo.displayDate(dir)
@@ -39,13 +44,20 @@ class SessionView(val dir: File) {
             else -> RecordingInfo.format(startMs, "EEEE d MMMM yyyy")
         }
     }
-    val pending: Boolean = ProcessingService.pending(dir)
+    val pending: Boolean get() = ProcessingService.pending(dir)
+    private fun hasTranscript(): Boolean {
+        val current = File(dir, "segments.json")
+        return (current.isFile && current.length() > 2) || File(dir, "live-transcript.txt").isFile ||
+            legacyRun?.let { File(it, "transcript.txt").isFile } == true
+    }
     /** Short state shown next to a recording; empty once everything is done. */
     fun status(): String = when {
         id == Live.session.value && Live.recording.value -> "Recording"
         id == Live.session.value && Live.working.value -> "Writing summary"
+        File(dir, ProcessingService.PROCESSING_ERROR).exists() -> "Needs attention"
+        File(dir, ProcessingService.TRANSCRIBE_PENDING).exists() -> "Transcription queued"
         pending -> "Summary queued"
-        summary == null && transcript.size() == 0 && legacyTranscript == null -> "Audio only"
+        !File(dir, "summary.md").exists() && !hasTranscript() -> "Audio only"
         else -> ""
     }
 }

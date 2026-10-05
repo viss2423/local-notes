@@ -51,6 +51,7 @@ class UiScreenshotTest {
     private fun install(vararg ids: String) = ids.forEach { id ->
         val spec = Models.all.first { it.id == id }
         Models.folder(context, spec).mkdirs(); File(Models.folder(context, spec), ".complete").writeText("x")
+        spec.files.forEach { File(Models.folder(context, spec), it).writeText("preview") }
     }
     private fun meeting(): File {
         val session = Store.create(context)
@@ -108,6 +109,7 @@ class UiScreenshotTest {
         val session = meeting()
         compose.setContent { AppTheme { DetailScreen(session.name, actions) {} } }
         compose.onNodeWithText("Action items").assertExists()
+        compose.onNodeWithText("Tap a transcript line to play it").assertExists()
         shot("05-detail-summary")
         compose.onNodeWithText("Transcript").performClick()
         compose.mainClock.advanceTimeBy(600)

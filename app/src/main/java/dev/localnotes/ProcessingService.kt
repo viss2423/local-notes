@@ -22,10 +22,12 @@ class ProcessingService : Service() {
         const val PAUSE = "pause"
         const val STOP = "stop"
         const val TRANSCRIBE_PENDING = "transcribe-pending"
+        const val PROCESSING_ERROR = "processing-error.txt"
         private val running = AtomicBoolean(false)
 
         /** Queue work for a recording and start the job. */
         fun enqueue(context: Context, session: File, transcribe: Boolean, resummarize: Boolean) {
+            File(session, PROCESSING_ERROR).delete()
             if (transcribe) Store.write(File(session, TRANSCRIBE_PENDING), "")
             if (resummarize && !transcribe) NotesBuilder(session, Transcript(session)).reset()
             Store.write(File(session, RecorderService.SUMMARY_PENDING), "")
@@ -86,7 +88,7 @@ class ProcessingService : Service() {
                 // Oldest first; never touch a recording that is still being recorded.
                 for (session in Store.sessions(this).reversed()) {
                     if (cancelled || Live.recording.value) break
-                    if (!pending(session) || session.name == Live.session.value) continue
+                    if (!pending(session) || File(session, PROCESSING_ERROR).exists() || session.name == Live.session.value) continue
                     process(session)
                 }
             } while (again && !cancelled && !Live.recording.value)
@@ -111,13 +113,18 @@ class ProcessingService : Service() {
             }
             if (cancelled) return
             summarize(session, transcript)
-            if (!cancelled) File(session, RecorderService.SUMMARY_PENDING).delete()
+            if (!cancelled) {
+                File(session, RecorderService.SUMMARY_PENDING).delete()
+                File(session, PROCESSING_ERROR).delete()
+            }
         } catch (error: InterruptedException) {
             // Paused; the markers stay so the work resumes later.
         } catch (error: Throwable) {
             if (!cancelled) {
                 Live.status.value = "Could not finish ${File(session, "title.txt").takeIf { it.exists() }?.readText() ?: "a recording"}: ${error.message}"
-                File(session, RecorderService.SUMMARY_PENDING).delete(); File(session, TRANSCRIBE_PENDING).delete()
+                // Keep the work markers. The user can retry after fixing a model or storage problem;
+                // this marker prevents the same failure from looping automatically on every launch.
+                runCatching { Store.write(File(session, PROCESSING_ERROR), error.message ?: error.javaClass.simpleName) }
             }
         } finally {
             if (Live.session.value == session.name && !Live.recording.value) Live.session.value = null

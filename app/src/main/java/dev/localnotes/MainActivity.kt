@@ -19,8 +19,6 @@ import dev.localnotes.ui.App
 import dev.localnotes.ui.AppTheme
 import dev.localnotes.ui.Actions
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -47,7 +45,9 @@ class MainActivity : ComponentActivity(), Actions {
         setContent { AppTheme { App(this) } }
         simulateFrom(intent)
         ProcessingService.recoverInterrupted(this)
-        if (!Store.busy.get() && !Live.recording.value && !ProcessingService.isRunning() && Store.sessions(this).any(ProcessingService::pending)) {
+        if (!Store.busy.get() && !Live.recording.value && !ProcessingService.isRunning() && Store.sessions(this).any {
+                ProcessingService.pending(it) && !File(it, ProcessingService.PROCESSING_ERROR).exists()
+            }) {
             runCatching { startForegroundService(Intent(this, ProcessingService::class.java).setAction(ProcessingService.DRAIN)) }
         }
     }
@@ -96,7 +96,9 @@ class MainActivity : ComponentActivity(), Actions {
     }
     override fun cancelDownloads() { startService(Intent(this, DownloadService::class.java).setAction("stop")) }
     override fun process(id: String, transcribe: Boolean, resummarize: Boolean) {
-        if (transcribe && Models.active(this, Role.ACCURATE) == null) { toast("Download the speech models in Setup first."); return }
+        if (transcribe && (Models.active(this, Role.ACCURATE) == null || Models.vadPath(this) == null)) {
+            toast("Download the accuracy and voice detector models in Setup first."); return
+        }
         if (!transcribe && Models.active(this, Role.SUMMARY) == null) { toast("Download a summary model in Setup first."); return }
         val session = Store.sessions(this).firstOrNull { it.name == id } ?: return
         ProcessingService.enqueue(this, session, transcribe, resummarize)
@@ -140,11 +142,7 @@ class MainActivity : ComponentActivity(), Actions {
             ZipOutputStream(output).use { zip ->
                 fun entry(name: String, bytes: ByteArray) { zip.putNextEntry(ZipEntry(name)); zip.write(bytes); zip.closeEntry() }
                 zip.putNextEntry(ZipEntry("${exportStem(session)}.wav"))
-                val header = ByteBuffer.allocate(44).order(ByteOrder.LITTLE_ENDIAN)
-                header.put("RIFF".toByteArray()).putInt((length + 36).toInt()).put("WAVEfmt ".toByteArray())
-                    .putInt(16).putShort(1).putShort(1).putInt(RATE).putInt(RATE * 2).putShort(2).putShort(16)
-                    .put("data".toByteArray()).putInt(length.toInt())
-                zip.write(header.array())
+                zip.write(wavHeader(length))
                 audio.inputStream().use { input ->
                     val buffer = ByteArray(1 shl 16); var remaining = length
                     while (remaining > 0) {

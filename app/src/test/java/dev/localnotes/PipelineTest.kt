@@ -3,6 +3,7 @@ package dev.localnotes
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
+import dev.localnotes.ui.SessionView
 import java.net.ServerSocket
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
@@ -207,6 +208,45 @@ class PipelineTest {
         assertEquals("done", File(session, "state.txt").readText())
         ProcessingService.recoverInterrupted(context)
         assertEquals(start + 3L * 3600 * 1000 + 300_000, RecordingInfo.endEpoch(session))
+        PcmWavDataSource(File(session, "audio.pcm")).use { source ->
+            val tail = ByteArray(8)
+            assertEquals(8, source.readAt(source.size - 8, tail, 0, 8))
+            assertEquals(-1, source.readAt(source.size, tail, 0, 8))
+        }
+    }
+
+    @Test fun playbackPresentsSavedPcmAsSeekableWavWithoutCopyingIt() {
+        val session = Store.create(context)
+        val audio = File(session, "audio.pcm")
+        audio.writeBytes(byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8))
+        PcmWavDataSource(audio).use { source ->
+            assertEquals(52L, source.size)
+            val header = ByteArray(44)
+            assertEquals(44, source.readAt(0, header, 0, 44))
+            assertEquals("RIFF", String(header.copyOfRange(0, 4)))
+            assertEquals("WAVE", String(header.copyOfRange(8, 12)))
+            assertEquals(8, java.nio.ByteBuffer.wrap(header, 40, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).int)
+            val crossing = ByteArray(6)
+            assertEquals(6, source.readAt(42, crossing, 0, crossing.size))
+            assertArrayEquals(byteArrayOf(0, 0, 1, 2, 3, 4), crossing)
+            assertEquals(0, source.readAt(52, crossing, 0, 0))
+            assertEquals(-1, source.readAt(52, crossing, 0, 1))
+        }
+    }
+
+    @Test fun failedBackgroundTranscriptionRemainsVisibleAndRetryable() {
+        val session = Store.create(context)
+        File(session, "audio.pcm").writeBytes(byteArrayOf(0, 0))
+        assertEquals("Audio only", SessionView(session).status())
+        File(session, ProcessingService.TRANSCRIBE_PENDING).writeText("")
+        assertEquals("Transcription queued", SessionView(session).status())
+        File(session, ProcessingService.PROCESSING_ERROR).writeText("Model unavailable")
+        assertEquals("Needs attention", SessionView(session).status())
+        assertEquals("Model unavailable", SessionView(session).error)
+        File(session, ProcessingService.PROCESSING_ERROR).delete()
+        File(session, ProcessingService.TRANSCRIBE_PENDING).delete()
+        File(session, RecorderService.SUMMARY_PENDING).writeText("")
+        assertEquals("Summary queued", SessionView(session).status())
     }
 
     @Test fun readAudioReturnsPaddedRange() {

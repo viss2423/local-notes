@@ -93,7 +93,7 @@ private fun WorkStrip(actions: Actions) {
     }
 }
 
-/** Re-reads the recordings whenever anything is saved. */
+/** Re-reads lightweight recording metadata when the services save something. */
 @Composable
 fun rememberSessions(): List<SessionView> {
     val context = LocalContext.current
@@ -102,9 +102,7 @@ fun rememberSessions(): List<SessionView> {
     val session by Live.session.collectAsState()
     val recording by Live.recording.collectAsState()
     val working by Live.working.collectAsState()
-    var tick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) { while (true) { delay(5000); tick++ } }
-    return remember(version / 10, notes, session, recording, working, tick) { Store.sessions(context).map(::SessionView) }
+    return remember(version, notes, session, recording, working) { Store.sessions(context).map(::SessionView) }
 }
 
 private fun greeting(): String = when (java.time.LocalTime.now().hour) { in 5..11 -> "Good morning"; in 12..17 -> "Good afternoon"; else -> "Good evening" }
@@ -148,7 +146,8 @@ fun HomeScreen(actions: Actions, openSetup: () -> Unit, open: (String) -> Unit, 
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(P.accentSoft).padding(18.dp)) {
                 Text("Live transcripts need a one-time download", style = Type.heading, color = P.ink)
                 Spacer(Modifier.height(4.dp))
-                Muted("About 1.8 GB. After that everything runs offline on this phone.")
+                val downloadGb = Models.all.filter { it.recommended }.sumOf { it.bytes } / 1e9
+                Muted("About ${"%.1f".format(downloadGb)} GB for the recommended models. After that everything runs offline on this phone.")
                 Spacer(Modifier.height(10.dp))
                 TextAction("Set up →", onClick = openSetup)
             }
@@ -307,9 +306,12 @@ private fun LiveTranscript(segments: List<Segment>, partial: String, dir: java.i
             }
             item(key = "partial") {
                 Column {
-                if (voicesReady && dir != null && partial.isNotBlank()) {
-                    val current = segments.lastOrNull()?.speakerId ?: 1
-                    SpeakerChip(current, dir, rename)
+                if (voicesReady && partial.isNotBlank()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        PulseDot(size = 6.dp)
+                        Spacer(Modifier.width(7.dp))
+                        Text("Identifying speaker", style = Type.small, color = P.muted)
+                    }
                     Spacer(Modifier.height(4.dp))
                 }
                 Text(when { partial.isNotBlank() -> partial; segments.isEmpty() && ready -> "Start talking. Words appear here as you speak."

@@ -1,7 +1,11 @@
 package dev.localnotes.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -21,7 +25,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +43,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.localnotes.*
 import java.io.File
+import kotlinx.coroutines.delay
 
 // ---------------- Recordings ----------------
 
@@ -69,12 +84,15 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
     val context = LocalContext.current
     val sessions = rememberSessions()
     val session = sessions.firstOrNull { it.id == id } ?: run { LaunchedEffect(Unit) { back() }; return }
+    val player = remember(id) { RecordingPlayer(context, File(session.dir, "audio.pcm")) }
+    DisposableEffect(player) { onDispose { player.close() } }
     val working by Live.working.collectAsState()
     val recording by Live.recording.collectAsState()
     val activeId by Live.session.collectAsState()
     val summaryStatus by Live.summaryStatus.collectAsState()
     val draft by Live.summaryDraft.collectAsState()
     val busyHere = working && activeId == id
+    val transcriptionPending = File(session.dir, ProcessingService.TRANSCRIBE_PENDING).exists()
     var page by rememberSaveable(id) { mutableIntStateOf(if (session.summary != null) 0 else 2) }
     var renaming by remember { mutableStateOf(false) }
     var speakerToRename by remember { mutableStateOf<Int?>(null) }
@@ -108,8 +126,12 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
                     TextAction("Stop", color = P.muted, onClick = actions::stopProcessing)
                 }
                 session.pending -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    Muted(if (recording || working) "Summary queued: it continues after the current task." else "The summary was paused.", Modifier.weight(1f))
-                    if (!recording && !working) TextAction("Continue") { actions.process(id, transcribe = false, resummarize = false) }
+                    Muted(when {
+                        File(session.dir, ProcessingService.PROCESSING_ERROR).exists() -> "Processing stopped after an error. Tap Continue to retry."
+                        recording || working -> "${if (transcriptionPending) "Transcription" else "Summary"} queued: it continues after the current task."
+                        else -> "${if (transcriptionPending) "Transcription" else "Summary"} paused."
+                    }, Modifier.weight(1f))
+                    if (!recording && !working) TextAction("Continue") { actions.process(id, transcribe = transcriptionPending, resummarize = false) }
                 }
                 else -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     val hasText = segments.isNotEmpty()
@@ -121,6 +143,8 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
                     if (hasText) TextAction("Transcribe again", color = P.muted) { actions.process(id, true, false) }
                 }
             }
+            Spacer(Modifier.height(14.dp))
+            PlayerCard(player)
             if (File(session.dir, "transcript-edited").exists() && session.summary != null) {
                 Muted("Transcript corrected. Summarize again to update the notes and summary.",
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(P.accentSoft).padding(12.dp))
@@ -136,7 +160,8 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
             }
             if (body != null && page == 2 && segments.isNotEmpty()) {
                 itemsIndexed(segments, key = { index, segment -> "${segment.startMs}-$index" }) { _, segment ->
-                    Column(Modifier.padding(bottom = 16.dp)) {
+                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { player.playFrom(segment.startMs) }
+                        .padding(horizontal = 8.dp, vertical = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             segment.speakerId?.let { SpeakerChip(it, session.dir) { selected -> speakerToRename = selected } }
                             Spacer(Modifier.width(8.dp))
@@ -150,6 +175,8 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
                         Text(segment.text, style = Type.reading, color = P.ink)
                     }
                 }
+            } else if (body != null && page == 1) {
+                itemsIndexed(body.lines()) { _, line -> MarkdownLine(line) }
             } else if (body != null) item {
                 SelectionContainer { MarkdownText(body) }
             } else item {
@@ -201,28 +228,96 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
     }
     if (deleting) AlertDialog(onDismissRequest = { deleting = false }, containerColor = P.paper, title = { Text("Delete this recording?", style = Type.heading, color = P.ink) },
         text = { Text("The audio, transcript and notes are removed from this phone. This can't be undone.", style = Type.body, color = P.muted) },
-        confirmButton = { TextButton(onClick = { deleting = false; session.dir.deleteRecursively(); Live.notesVersion.value++; back() }) { Text("Delete", color = P.danger) } },
+        confirmButton = { TextButton(onClick = { deleting = false; player.close(); session.dir.deleteRecursively(); Live.notesVersion.value++; back() }) { Text("Delete", color = P.danger) } },
         dismissButton = { TextButton(onClick = { deleting = false }) { Text("Cancel", color = P.muted) } })
+}
+
+/** Compact transport for a saved recording. Transcript rows seek to their exact audio offset. */
+@Composable
+private fun PlayerCard(player: RecordingPlayer) {
+    val playing by player.playing.collectAsState()
+    val position by player.positionMs.collectAsState()
+    val error by player.error.collectAsState()
+    var dragging by remember(player) { mutableStateOf<Float?>(null) }
+    LaunchedEffect(player, playing) { while (playing) { player.updatePosition(); delay(200) } }
+    val total = player.durationMs
+    val fraction = dragging ?: if (total > 0) (position.toFloat() / total).coerceIn(0f, 1f) else 0f
+    val lime = Color(0xFFC9F679)
+    val white = Color.White
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Color(0xFF141F39))
+        .padding(horizontal = 16.dp, vertical = 14.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("RECORDING", style = Type.label, color = lime)
+            Spacer(Modifier.weight(1f))
+            Text("Tap a transcript line to play it", style = Type.small, color = white.copy(alpha = 0.7f))
+        }
+        Canvas(Modifier.fillMaxWidth().height(34.dp)
+            .semantics {
+                contentDescription = "Playback position"
+                progressBarRangeInfo = ProgressBarRangeInfo(fraction, 0f..1f)
+                setProgress { value -> player.seekTo((value.coerceIn(0f, 1f) * total).toLong()); true }
+            }
+            .pointerInput(total) {
+                if (total <= 0) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val margin = 9.dp.toPx()
+                    val width = (size.width - margin * 2).coerceAtLeast(1f)
+                    fun fractionAt(x: Float) = ((x - margin) / width).coerceIn(0f, 1f)
+                    dragging = fractionAt(down.position.x)
+                    drag(down.id) { change -> dragging = fractionAt(change.position.x); change.consume() }
+                    player.seekTo(((dragging ?: 0f) * total).toLong())
+                    dragging = null
+                }
+            }) {
+            val margin = 9.dp.toPx()
+            val width = (size.width - margin * 2).coerceAtLeast(0f)
+            val trackHeight = 6.dp.toPx()
+            val top = (size.height - trackHeight) / 2
+            drawRoundRect(white.copy(alpha = 0.28f), Offset(margin, top), Size(width, trackHeight), CornerRadius(trackHeight / 2))
+            if (fraction > 0f) drawRoundRect(lime, Offset(margin, top), Size(width * fraction, trackHeight), CornerRadius(trackHeight / 2))
+            drawCircle(lime, radius = margin, center = Offset(margin + width * fraction, size.height / 2))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(duration(if (dragging != null) (fraction * total).toLong() else position),
+                style = Type.small.merge(Tabular), color = white)
+            Text(" / ${duration(total)}", style = Type.small.merge(Tabular), color = white.copy(alpha = 0.6f))
+            Spacer(Modifier.weight(1f))
+            Text("−10", Modifier.clickable { player.seekTo(position - 10_000) }.padding(8.dp), style = Type.small, color = white)
+            Spacer(Modifier.width(7.dp))
+            Box(Modifier.size(45.dp).clip(RoundedCornerShape(15.dp)).background(lime).clickable { player.toggle() },
+                contentAlignment = Alignment.Center) {
+                Icon(if (playing) AppIcons.Pause else AppIcons.Play, if (playing) "Pause audio" else "Play audio",
+                    Modifier.size(22.dp), tint = Color(0xFF141F39))
+            }
+            Spacer(Modifier.width(7.dp))
+            Text("+10", Modifier.clickable { player.seekTo(position + 10_000) }.padding(8.dp), style = Type.small, color = white)
+        }
+        error?.let { Text(it, Modifier.padding(top = 7.dp), style = Type.small, color = Color(0xFFFFB6C2)) }
+    }
 }
 
 /** Minimal Markdown: serif headings, bullets and bold. */
 @Composable
 fun MarkdownText(text: String, dim: Boolean = false) {
-    val color = if (dim) P.muted else P.ink
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        text.lines().forEach { raw ->
-            val line = raw.trimEnd()
-            val bullet = line.trimStart().let { it.startsWith("- ") || it.startsWith("* ") || it.startsWith("• ") }
-            when {
-                line.isBlank() -> Spacer(Modifier.height(4.dp))
-                line.startsWith("#") -> Text(line.trimStart('#', ' '), Modifier.padding(top = 12.dp, bottom = 2.dp), style = Type.heading, color = color)
-                bullet -> Row {
-                    Text("–", Modifier.width(18.dp), style = Type.reading, color = P.accent)
-                    Text(bold(line.trimStart().drop(2).trimStart()), style = Type.reading, color = color)
-                }
-                else -> Text(bold(line), style = Type.reading, color = color)
-            }
+        text.lines().forEach { MarkdownLine(it, dim) }
+    }
+}
+
+@Composable
+private fun MarkdownLine(raw: String, dim: Boolean = false) {
+    val color = if (dim) P.muted else P.ink
+    val line = raw.trimEnd()
+    val bullet = line.trimStart().let { it.startsWith("- ") || it.startsWith("* ") || it.startsWith("• ") }
+    when {
+        line.isBlank() -> Spacer(Modifier.height(4.dp))
+        line.startsWith("#") -> Text(line.trimStart('#', ' '), Modifier.padding(top = 12.dp, bottom = 2.dp), style = Type.heading, color = color)
+        bullet -> Row {
+            Text("–", Modifier.width(18.dp), style = Type.reading, color = P.accent)
+            Text(bold(line.trimStart().drop(2).trimStart()), style = Type.reading, color = color)
         }
+        else -> Text(bold(line), style = Type.reading, color = color)
     }
 }
 private fun bold(line: String) = buildAnnotatedString {
