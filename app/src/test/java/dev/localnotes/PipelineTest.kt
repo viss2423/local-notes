@@ -1,5 +1,6 @@
 package dev.localnotes
 
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.RandomAccessFile
@@ -34,6 +35,25 @@ class PipelineTest {
         }
     }
     private fun words(n: Int, tag: String) = (1..n).joinToString(" ") { "$tag$it" }
+
+    @Test fun pcmBlockReaderHandlesShortReadsAndOddEofOnAndroid12() {
+        val input = object : ByteArrayInputStream(ByteArray(11) { it.toByte() }) {
+            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, minOf(len, 3))
+        }
+        val block = ByteArray(8)
+        assertEquals(8, input.readBlock(block))
+        assertArrayEquals(ByteArray(8) { it.toByte() }, block)
+        assertEquals(3, input.readBlock(block))
+        assertArrayEquals(byteArrayOf(8, 9, 10), block.copyOfRange(0, 3))
+        assertEquals(0, input.readBlock(block))
+    }
+
+    @Test fun finalUnpunctuatedActionIsNotLost() {
+        val response = "## Action items\n- Priya: ask finance about the agency by Friday"
+        assertEquals(response, Writer.clean(response))
+        assertEquals("- Priya: ask finance about the agency by Friday",
+            Writer.clean("- Priya: ask finance about the agency by Friday"))
+    }
 
     @Test fun transcriptPersistsAndRefinesInPlace() {
         val session = Store.create(context)

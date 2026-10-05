@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
@@ -93,12 +94,25 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
     val draft by Live.summaryDraft.collectAsState()
     val busyHere = working && activeId == id
     val transcriptionPending = File(session.dir, ProcessingService.TRANSCRIBE_PENDING).exists()
-    var page by rememberSaveable(id) { mutableIntStateOf(if (session.summary != null) 0 else 2) }
+    // Show already-written detailed notes while a long summary is still running.
+    var page by rememberSaveable(id) { mutableIntStateOf(when {
+        session.summary != null -> 0
+        session.notes != null -> 1
+        else -> 2
+    }) }
     var renaming by remember { mutableStateOf(false) }
     var speakerToRename by remember { mutableStateOf<Int?>(null) }
     var segmentToEdit by remember { mutableStateOf<Segment?>(null) }
     var deleting by remember { mutableStateOf(false) }
+    var transcriptQuery by rememberSaveable(id) { mutableStateOf("") }
+    val nameVersion by Live.transcriptVersion.collectAsState()
+    val speakerNames = remember(session.dir, nameVersion) { SpeakerNames(session.dir) }
     val segments = session.transcript.visible()
+    val term = transcriptQuery.trim()
+    val shownSegments = if (term.isBlank()) segments else segments.filter { segment ->
+        segment.text.contains(term, ignoreCase = true) ||
+            segment.speakerId?.let { speakerNames.name(it).contains(term, ignoreCase = true) } == true
+    }
     val transcriptText = if (segments.isNotEmpty()) session.transcript.text() else session.legacyTranscript.orEmpty()
     val body = when (page) { 0 -> session.summary; 1 -> session.notes; else -> transcriptText.ifBlank { null } }
 
@@ -158,8 +172,26 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
                 MarkdownText(Writer.clean(draft), dim = true)
                 Spacer(Modifier.height(14.dp))
             }
+            if (page == 2 && segments.isNotEmpty()) item {
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(P.raised)
+                    .padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(AppIcons.Search, null, Modifier.size(18.dp), tint = P.muted)
+                    Spacer(Modifier.width(10.dp))
+                    Box(Modifier.weight(1f)) {
+                        if (transcriptQuery.isEmpty()) Muted("Find a word or speaker", style = Type.body)
+                        BasicTextField(transcriptQuery, { transcriptQuery = it.take(100) }, singleLine = true,
+                            textStyle = Type.body.copy(color = P.ink), cursorBrush = SolidColor(P.accent),
+                            modifier = Modifier.fillMaxWidth().testTag("transcript-search"))
+                    }
+                    if (transcriptQuery.isNotEmpty()) TextAction("Clear", color = P.muted) { transcriptQuery = "" }
+                }
+                if (transcriptQuery.isNotBlank()) Muted("${shownSegments.size} matching passages · tap one to play it",
+                    Modifier.padding(top = 8.dp, bottom = 10.dp))
+            }
             if (body != null && page == 2 && segments.isNotEmpty()) {
-                itemsIndexed(segments, key = { index, segment -> "${segment.startMs}-$index" }) { _, segment ->
+                if (shownSegments.isEmpty()) item { Muted("No matching passages. Try another word or speaker.",
+                    Modifier.padding(vertical = 16.dp), style = Type.body) }
+                itemsIndexed(shownSegments, key = { index, segment -> "${segment.startMs}-$index" }) { _, segment ->
                     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { player.playFrom(segment.startMs) }
                         .padding(horizontal = 8.dp, vertical = 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -242,12 +274,12 @@ private fun PlayerCard(player: RecordingPlayer) {
     LaunchedEffect(player, playing) { while (playing) { player.updatePosition(); delay(200) } }
     val total = player.durationMs
     val fraction = dragging ?: if (total > 0) (position.toFloat() / total).coerceIn(0f, 1f) else 0f
-    val lime = Color(0xFFC9F679)
-    val white = Color.White
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(Color(0xFF141F39))
+    val signal = P.spark
+    val white = P.heroInk
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(P.hero)
         .padding(horizontal = 16.dp, vertical = 14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("RECORDING", style = Type.label, color = lime)
+            Text("RECORDING", style = Type.label, color = signal)
             Spacer(Modifier.weight(1f))
             Text("Tap a transcript line to play it", style = Type.small, color = white.copy(alpha = 0.7f))
         }
@@ -275,8 +307,8 @@ private fun PlayerCard(player: RecordingPlayer) {
             val trackHeight = 6.dp.toPx()
             val top = (size.height - trackHeight) / 2
             drawRoundRect(white.copy(alpha = 0.28f), Offset(margin, top), Size(width, trackHeight), CornerRadius(trackHeight / 2))
-            if (fraction > 0f) drawRoundRect(lime, Offset(margin, top), Size(width * fraction, trackHeight), CornerRadius(trackHeight / 2))
-            drawCircle(lime, radius = margin, center = Offset(margin + width * fraction, size.height / 2))
+            if (fraction > 0f) drawRoundRect(signal, Offset(margin, top), Size(width * fraction, trackHeight), CornerRadius(trackHeight / 2))
+            drawCircle(signal, radius = margin, center = Offset(margin + width * fraction, size.height / 2))
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(duration(if (dragging != null) (fraction * total).toLong() else position),
@@ -285,10 +317,10 @@ private fun PlayerCard(player: RecordingPlayer) {
             Spacer(Modifier.weight(1f))
             Text("−10", Modifier.clickable { player.seekTo(position - 10_000) }.padding(8.dp), style = Type.small, color = white)
             Spacer(Modifier.width(7.dp))
-            Box(Modifier.size(45.dp).clip(RoundedCornerShape(15.dp)).background(lime).clickable { player.toggle() },
+            Box(Modifier.size(45.dp).clip(RoundedCornerShape(15.dp)).background(signal).clickable { player.toggle() },
                 contentAlignment = Alignment.Center) {
                 Icon(if (playing) AppIcons.Pause else AppIcons.Play, if (playing) "Pause audio" else "Play audio",
-                    Modifier.size(22.dp), tint = Color(0xFF141F39))
+                    Modifier.size(22.dp), tint = P.hero)
             }
             Spacer(Modifier.width(7.dp))
             Text("+10", Modifier.clickable { player.seekTo(position + 10_000) }.padding(8.dp), style = Type.small, color = white)
@@ -345,9 +377,9 @@ fun SetupScreen(actions: Actions) {
                 SolidAction("Download everything  ·  ${"%.1f".format(missing.sumOf { it.bytes } / 1e9)} GB", Modifier.fillMaxWidth()) { missing.forEach(actions::download) }
             }
             listOf(Triple(Role.LIVE, "Live transcript", "Shows words as you speak."),
-                Triple(Role.ACCURATE, "Accuracy pass", "Re-checks each paragraph a few seconds later, so the transcript is final when you stop."),
+                Triple(Role.ACCURATE, "Accuracy pass", "Re-checks each paragraph behind live text. Saved audio can be reprocessed if the live pass falls behind."),
                 Triple(Role.SPEAKER, "Voice ID", "Labels different voices as Speaker 1, Speaker 2 and so on. Tap a label in the transcript to give it a name."),
-                Triple(Role.SUMMARY, "Summary", "Writes notes while you record and a summary when you stop.")).forEach { (role, title, explain) ->
+                Triple(Role.SUMMARY, "Summary", "Writes notes during recording, then finishes pending notes and the concise overview in the background. Long sessions can take several minutes.")).forEach { (role, title, explain) ->
                 Spacer(Modifier.height(30.dp))
                 SectionLabel(title)
                 Spacer(Modifier.height(4.dp))

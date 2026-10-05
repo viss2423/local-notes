@@ -50,10 +50,10 @@ class Writer(context: Context, private val spec: ModelSpec, private val threads:
                 .replace(Regex("<\\|?(im_end|im_start|turn|channel)\\|?>|<turn\\|>|<end_of_turn>"), "")
             val seen = HashSet<String>()
             val lines = stripped.trimEnd().lines().filter { line -> key(line).let { it.length <= 12 || seen.add(it) } }.toMutableList()
-            // A last bullet that stops mid-sentence was cut off by the length limit; leave it out.
-            lines.lastOrNull()?.trim()?.let { last ->
-                if (lines.size > 1 && !last.startsWith("#") && last.split(' ').size > 3 && last.last().isLetterOrDigit()) lines.removeAt(lines.lastIndex)
-            }
+            // An unpunctuated final bullet may be complete, particularly an action item.
+            // Only discard a tail that clearly ends in a connective with its object missing.
+            if (lines.size > 1 && lines.last().trim().matches(Regex("(?i).*\\b(by|to|the|a|an|and|or|for|with|from|of|at|in|on|until|unless)\\s*$")))
+                lines.removeAt(lines.lastIndex)
             return lines.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
         }
     }
@@ -132,8 +132,8 @@ object Prompts {
 
 /**
  * Builds notes while recording: every ~[SECTION_WORDS] finished words become one section of notes,
- * and the overview is refreshed from all section notes. At the end only the last section and the
- * overview remain, so the summary is ready seconds after recording stops.
+ * and the overview is refreshed from all section notes. Work still pending at Stop is resumed
+ * from these saved sections; long recordings can require several more minutes of generation.
  */
 class NotesBuilder(private val session: File, private val transcript: Transcript) {
     companion object { const val SECTION_WORDS = 500; private const val OVERVIEW_SOURCE_WORDS = 2000 }
@@ -172,7 +172,8 @@ class NotesBuilder(private val session: File, private val transcript: Transcript
         }
         val start = RecordingInfo.wallClockAt(session, all[range.first].startMs)?.let { RecordingInfo.format(it, "HH:mm") } ?: Chunking.timestamp(all[range.first].startMs)
         val end = RecordingInfo.wallClockAt(session, all[range.last].endMs)?.let { RecordingInfo.format(it, "HH:mm") } ?: Chunking.timestamp(all[range.last].endMs)
-        Live.summaryStatus.value = "Writing notes for $start–$end"
+        val approximately = maxOf(sections.size + 1, (transcript.words() + SECTION_WORDS - 1) / SECTION_WORDS)
+        Live.summaryStatus.value = "Writing notes ${sections.size + 1} of about $approximately · $start–$end"
         val notes = NumberGuard.filter(writer.write(Prompts.system, Prompts.section(part), 650, start = "- ") { Live.summaryDraft.value = it }, part)
         val name = "section-%03d.md".format(sections.size + 1)
         Store.write(File(folder, name), "### $start–$end\n$notes\n")

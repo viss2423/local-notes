@@ -6,9 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -21,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import dev.localnotes.SpeakerNames
@@ -40,13 +43,13 @@ fun SpeakerChip(id: Int, session: File, onRename: (Int) -> Unit) {
     val version by Live.transcriptVersion.collectAsState()
     val label = remember(id, session, version) { SpeakerNames(session).name(id) }
     Row(Modifier.testTag("speaker-$id").background(color.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-        .clickable { onRename(id) }.padding(horizontal = 10.dp, vertical = 6.dp),
+        .clickable(role = Role.Button, onClick = { onRename(id) }).padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically) {
         Text("●", color = color, style = Type.small)
         Spacer(Modifier.width(6.dp))
         Text(label, color = color, style = Type.small)
         Spacer(Modifier.width(3.dp))
-        Text("✎", color = color.copy(alpha = 0.7f), style = Type.small)
+        Icon(AppIcons.Edit, "Rename $label", modifier = Modifier.size(14.dp), tint = color.copy(alpha = 0.8f))
     }
 }
 

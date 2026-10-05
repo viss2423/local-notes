@@ -4,10 +4,26 @@ import android.content.Context
 import com.k2fsa.sherpa.onnx.*
 import java.io.Closeable
 import java.io.File
+import java.io.InputStream
 import java.io.RandomAccessFile
 import kotlin.math.sqrt
 
 const val RATE = 16000
+
+/** Fill a PCM block even when the stream returns short reads; InputStream.readNBytes needs API 33. */
+fun InputStream.readBlock(bytes: ByteArray): Int {
+    var used = 0
+    while (used < bytes.size) {
+        val n = read(bytes, used, bytes.size - used)
+        if (n < 0) break
+        if (n == 0) {
+            val one = read()
+            if (one < 0) break
+            bytes[used++] = one.toByte()
+        } else used += n
+    }
+    return used
+}
 
 /** Boosts quiet model input only. Saved PCM remains the microphone's untouched recording. */
 fun boostQuiet(samples: FloatArray): FloatArray {
@@ -158,7 +174,7 @@ class SpeechSplitter(vadModel: String) : Closeable {
             val bytes = ByteArray(window * 2)
             while (true) {
                 if (cancelled()) throw InterruptedException("Stopped")
-                val n = input.readNBytes(bytes, 0, bytes.size)
+                val n = input.readBlock(bytes) and -2 // A truncated final byte cannot form a PCM sample.
                 if (n <= 0) break
                 val samples = FloatArray(n / 2) { i -> ((bytes[i * 2].toInt() and 255) or (bytes[i * 2 + 1].toInt() shl 8)).toShort() / 32768f }
                 val rms = sqrt(samples.sumOf { (it * it).toDouble() } / samples.size).toFloat()

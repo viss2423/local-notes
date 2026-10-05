@@ -96,17 +96,17 @@ fun TextTabs(items: List<String>, selected: Int, modifier: Modifier = Modifier, 
 
 /** A luminous recording control, with two offset rings like an audio signal. */
 @Composable
-fun RecordRing(size: Dp = 112.dp, enabled: Boolean = true, onClick: () -> Unit) {
+fun RecordRing(size: Dp = 112.dp, enabled: Boolean = true, color: Color = P.accent, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val inner by animateDpAsState(if (pressed) size * 0.46f else size * 0.56f, spring(dampingRatio = 0.5f), label = "dot")
-    Box(Modifier.size(size).clip(CircleShape).background(P.accent.copy(alpha = 0.09f))
-        .border(1.5.dp, if (enabled) P.accent.copy(alpha = 0.5f) else P.line, CircleShape)
+    Box(Modifier.size(size).clip(CircleShape).background(color.copy(alpha = 0.10f))
+        .border(1.5.dp, if (enabled) color.copy(alpha = 0.55f) else P.line, CircleShape)
         .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClick = onClick)
         .semantics { contentDescription = "Start recording" }, contentAlignment = Alignment.Center) {
-        Box(Modifier.size(size * 0.8f).border(1.dp, P.accent.copy(alpha = 0.4f), CircleShape))
+        Box(Modifier.size(size * 0.8f).border(1.dp, color.copy(alpha = 0.45f), CircleShape))
         Box(Modifier.size(inner).clip(CircleShape).background(if (enabled)
-            Brush.linearGradient(listOf(P.accent, P.accent.copy(alpha = 0.6f))) else Brush.linearGradient(listOf(P.line, P.line))))
+            Brush.linearGradient(listOf(color, color.copy(alpha = 0.7f))) else Brush.linearGradient(listOf(P.line, P.line))))
     }
 }
 

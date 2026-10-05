@@ -8,7 +8,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import dev.localnotes.ui.*
 import java.io.File
 import org.junit.After
@@ -116,6 +118,22 @@ class UiScreenshotTest {
         compose.waitForIdle()
         shot("06-detail-transcript")
         compose.onAllNodesWithTag("speaker-2").onFirst().assertExists()
+        compose.onNodeWithTag("transcript-search").performTextInput("beta")
+        compose.mainClock.advanceTimeBy(600)
+        compose.onNodeWithText("1 matching passages · tap one to play it").assertExists()
+        shot("11-detail-search")
+    }
+
+    @Test fun pendingLongRecordingOpensSavedNotes() {
+        val session = meeting()
+        File(session, "summary.md").delete()
+        val folder = File(session, "notes").apply { mkdirs() }
+        File(folder, "section-001.md").writeText("### 10:00–10:03\n- Beta starts on October 1.")
+        File(folder, "sections.json").writeText("[{\"from\":0,\"to\":1,\"file\":\"section-001.md\"}]")
+        File(session, RecorderService.SUMMARY_PENDING).writeText("")
+        compose.setContent { AppTheme { DetailScreen(session.name, actions) {} } }
+        compose.onNodeWithText("Beta starts on October 1.", substring = true).assertExists()
+        shot("10-detail-notes-pending")
     }
 
     @Test fun setupScreen() {

@@ -22,7 +22,7 @@ import kotlin.math.sqrt
 /**
  * Records audio and, at the same time, transcribes and summarizes it:
  * capture → live text (streaming model) → accuracy pass (offline model, per sentence) → section notes.
- * Stop ends capture; the remaining work (seconds, not minutes) finishes before the service exits.
+ * Stop ends capture promptly; pending notes continue in ProcessingService after audio is saved.
  */
 class RecorderService : Service() {
     @Volatile private var stopping = false
@@ -338,7 +338,8 @@ class RecorderService : Service() {
                 input.skip(44)
                 val buffer = ByteArray(3200)
                 while (!stopping) {
-                    val n = input.readNBytes(buffer, 0, buffer.size); if (n <= 0) break
+                    val n = input.readBlock(buffer) and -2 // Ignore a truncated final sample.
+                    if (n <= 0) break
                     output.write(buffer, 0, n); captured += n
                     val samples = FloatArray(n / 2) { i -> ((buffer[i * 2].toInt() and 255) or (buffer[i * 2 + 1].toInt() shl 8)).toShort() / 32768f }
                     queueLive(samples)

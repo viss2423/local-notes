@@ -8,8 +8,8 @@ Designed and tested on a OnePlus 13R. Other arm64 Android 12+ phones may be slow
 
 1. Install the latest APK over the existing app. **Do not uninstall the old app**: Android deletes its private recordings on uninstall. The update uses the same signing key.
 2. In **Setup**, download the recommended models once: Kroko (live words, 57 MB), Parakeet Unified (accuracy pass, 501 MB), Voice ID (speaker labels, 26 MB), and Gemma 4 E2B (notes and summaries, 3.3 GB). Downloads resume if interrupted. Parakeet TDT v2 is an optional 482 MB accuracy model: it scored slightly better overall on a 48-clip varied-accent PC sample, though results varied by accent. A smaller Qwen3.5 model is optional for summaries, but was less reliable with numbers in phone tests.
-3. Tap **Start recording**. Live draft words appear while you speak; finished utterances receive a speaker label. Tap any label to rename it. No name prompt interrupts recording.
-4. **Pause** or **Stop & save**. The recording is kept with its date, start/end time and pause history. Open it to play the saved audio, seek with the timeline, or tap a transcript passage to hear it. You can export a ZIP containing the audio and text.
+3. Tap the coral record button in the studio card. Live draft words appear while you speak; finished utterances receive a speaker label. Tap any label to rename it. No name prompt interrupts recording.
+4. **Pause** or **Stop & save**. The recording is kept with its date, start/end time and pause history. Open it to play the saved audio, seek with the timeline, search the transcript for a word or speaker, or tap a passage to hear it. You can export a ZIP containing the audio and text.
 
 The app uses a microphone foreground service when you leave it. On Android 16 it requests a promoted ongoing notification with a status-bar chip; the phone's OxygenOS version and notification settings decide whether a Fluid Cloud-style capsule is shown. The recording notification and Stop action remain available even if the system does not promote it.
 
@@ -30,6 +30,8 @@ Speaker detection needs a clean enough utterance and can make mistakes on overla
 Start time comes from the first captured audio frame where available. End time is the last captured frame, or the Stop press if paused. Pause periods are stored so transcript wall-clock times map back to when words were spoken.
 
 On the OnePlus 13R, v0.9 completed normal and digitally quiet four-minute, four-voice replays without crashing, with 11.20% and 11.86% final word error respectively. All four voices were found in each. A separate 22-minute real-time background replay saved its full audio and timestamps, refined 298 transcript segments, and completed eight detailed-note sections plus a concise summary; the summary took 14 minutes after Stop. The phone also played, sought, and jumped from a transcript passage in the signed release. These synthetic replays do not establish distant-microphone accuracy or several-hour reliability. See [v0.9 phone validation](VALIDATION_2026-10-05_V0.9_PHONE.md) for measurements and limits; [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md) records earlier experiments.
+
+v0.10 adds a teal/coral recording studio, text and speaker search inside saved transcripts, and a note-cleaning fix that preserves a complete final bullet without punctuation. A newer compact Moonshine v2 speech model was evaluated on the same 48 accented clips but rejected after decoder errors and substantially higher word error. The v0.10 changes are validated on the computer; no v0.10 phone test is claimed. See [v0.10 validation](VALIDATION_2026-10-05_V0.10.md).
 
 ## Build
 

@@ -15,19 +15,22 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
-/** Electric studio palette: cool surfaces, clear type and a high-visibility recording signal. */
+/** A compact audio-console palette with one consistent signal colour in both themes. */
 @Immutable
 data class Palette(
     val paper: Color, val raised: Color, val ink: Color, val muted: Color, val faint: Color,
     val line: Color, val accent: Color, val accentSoft: Color, val onAccent: Color, val danger: Color,
+    val hero: Color, val heroInk: Color, val spark: Color,
 )
 val LightPalette = Palette(
-    paper = Color(0xFFF3F6FC), raised = Color(0xFFFFFFFF), ink = Color(0xFF10182E), muted = Color(0xFF5E6D89), faint = Color(0xFF8C9AB0),
-    line = Color(0xFFDCE4F2), accent = Color(0xFF3151D8), accentSoft = Color(0xFFE1E8FF), onAccent = Color(0xFFFFFFFF), danger = Color(0xFFD43C62),
+    paper = Color(0xFFF2F8F7), raised = Color(0xFFFFFFFF), ink = Color(0xFF102B31), muted = Color(0xFF526B70), faint = Color(0xFF71888B),
+    line = Color(0xFFD7E7E4), accent = Color(0xFF006F73), accentSoft = Color(0xFFD7F3EC), onAccent = Color(0xFFFFFFFF), danger = Color(0xFFB63343),
+    hero = Color(0xFF092E34), heroInk = Color(0xFFEFFFF9), spark = Color(0xFFFF7C65),
 )
 val DarkPalette = Palette(
-    paper = Color(0xFF090E1D), raised = Color(0xFF151E35), ink = Color(0xFFF5F8FF), muted = Color(0xFFA5B2CB), faint = Color(0xFF74819D),
-    line = Color(0xFF293552), accent = Color(0xFFC5F47B), accentSoft = Color(0xFF293B33), onAccent = Color(0xFF111B21), danger = Color(0xFFFF779B),
+    paper = Color(0xFF07191D), raised = Color(0xFF11282C), ink = Color(0xFFE9FAF5), muted = Color(0xFFA8C6BF), faint = Color(0xFF789A94),
+    line = Color(0xFF29444A), accent = Color(0xFF75EBD3), accentSoft = Color(0xFF16453F), onAccent = Color(0xFF062924), danger = Color(0xFFFF8790),
+    hero = Color(0xFF123940), heroInk = Color(0xFFEFFFF9), spark = Color(0xFFFF9278),
 )
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 val P: Palette @Composable get() = LocalPalette.current
