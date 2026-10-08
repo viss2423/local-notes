@@ -25,6 +25,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
@@ -42,7 +43,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun TextAction(text: String, modifier: Modifier = Modifier, color: Color = P.accent, enabled: Boolean = true, icon: ImageVector? = null, onClick: () -> Unit) {
     Row(modifier.clip(RoundedCornerShape(8.dp)).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
-        .heightIn(min = 44.dp).padding(horizontal = 6.dp).alpha(if (enabled) 1f else 0.4f), verticalAlignment = Alignment.CenterVertically) {
+        .heightIn(min = 48.dp).padding(horizontal = 6.dp).alpha(if (enabled) 1f else 0.4f), verticalAlignment = Alignment.CenterVertically) {
         if (icon != null) { Icon(icon, null, Modifier.size(18.dp), tint = color); Spacer(Modifier.width(6.dp)) }
         Text(text, style = Type.body, color = color)
     }
@@ -57,37 +58,43 @@ fun SolidAction(text: String, modifier: Modifier = Modifier, enabled: Boolean = 
     }
 }
 
-/** Floating navigation dock. */
+/** Stable bottom navigation with visible labels and accessibility selection state. */
 @Composable
 fun WordTabs(items: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-    Column(Modifier.fillMaxWidth().background(P.paper).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(P.raised).border(1.dp, P.line, RoundedCornerShape(22.dp))
-            .padding(5.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth().background(P.raised).navigationBarsPadding()) {
+        Hairline()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
             items.forEachIndexed { i, label ->
                 val active = i == selected
-                Column(Modifier.weight(1f).clip(RoundedCornerShape(16.dp)).background(if (active) P.accentSoft else Color.Transparent)
-                    .clickable(role = Role.Tab) { onSelect(i) }
-                    .semantics { contentDescription = label + if (active) ", selected" else "" }
-                    .padding(vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(label, style = Type.small.copy(fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal),
-                        color = if (active) P.accent else P.muted)
+                Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                    .clickable(role = Role.Tab) { onSelect(i) }.semantics { this.selected = active }
+                    .padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(Modifier.width(52.dp).height(30.dp).clip(RoundedCornerShape(10.dp))
+                        .background(if (active) P.accentSoft else Color.Transparent), contentAlignment = Alignment.Center) {
+                        Icon(listOf(AppIcons.Home, AppIcons.List, AppIcons.Tune)[i], null, Modifier.size(22.dp),
+                            tint = if (active) P.accent else P.muted)
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(label, style = Type.small, color = if (active) P.accent else P.muted)
                 }
             }
         }
     }
 }
 
-/** Rounded view switcher, legible while recording. */
+/** Full-width reading tabs with a persistent baseline. */
 @Composable
 fun TextTabs(items: List<String>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
-    Column(modifier) {
-        Row(Modifier.clip(RoundedCornerShape(16.dp)).background(P.raised).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+    Column(modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth()) {
             items.forEachIndexed { i, label ->
                 val active = i == selected
-                Box(Modifier.clip(RoundedCornerShape(12.dp)).background(if (active) P.accentSoft else Color.Transparent)
-                    .clickable(role = Role.Tab) { onSelect(i) }.padding(horizontal = 15.dp, vertical = 10.dp)) {
-                    Text(label, style = Type.small.copy(fontWeight = if (active) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal),
+                Column(Modifier.weight(1f).clickable(role = Role.Tab) { onSelect(i) }
+                    .semantics { this.selected = active }, horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(label, Modifier.padding(horizontal = 4.dp, vertical = 15.dp),
+                        style = Type.small.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
                         color = if (active) P.accent else P.muted)
+                    Box(Modifier.fillMaxWidth().height(2.dp).background(if (active) P.accent else P.line))
                 }
             }
         }

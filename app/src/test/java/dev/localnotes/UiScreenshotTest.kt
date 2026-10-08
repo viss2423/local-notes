@@ -11,6 +11,9 @@ import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
+import org.junit.Assert.assertEquals
 import dev.localnotes.ui.*
 import java.io.File
 import org.junit.After
@@ -149,6 +152,67 @@ class UiScreenshotTest {
         meeting(); meeting()
         compose.setContent { AppTheme { LibraryScreen {} } }
         shot("08-library")
+    }
+
+    @Test fun libraryFiltersPendingAndLongRecordings() {
+        val long = meeting()
+        Store.write(File(long, "title.txt"), "Long planning meeting")
+        val pending = Store.create(context)
+        Store.write(File(pending, "title.txt"), "Pending interview")
+        File(pending, RecorderService.SUMMARY_PENDING).writeText("")
+        compose.setContent { AppTheme { LibraryScreen {} } }
+        compose.onNodeWithText("Needs attention").performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithText("Pending interview").assertExists()
+        compose.onNodeWithText("Long planning meeting").assertDoesNotExist()
+        compose.onNodeWithText("30+ minutes").performClick()
+        compose.mainClock.advanceTimeBy(300)
+        compose.onNodeWithText("Long planning meeting").assertExists()
+        compose.onNodeWithText("Pending interview").assertDoesNotExist()
+        shot("12-library-filter")
+    }
+
+    @Test fun workspaceNavigation() {
+        // This screen has no continuous recording animation; let input/recomposition settle normally.
+        compose.mainClock.autoAdvance = true
+        compose.setContent { AppTheme { App(actions) } }
+        compose.onNodeWithText("Home").assertIsSelected()
+        compose.onNodeWithText("Recordings").performClick()
+        shot("13-navigation")
+        compose.onNodeWithText("30+ minutes").assertExists()
+        compose.onNodeWithText("Search by name or date").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h740dp-xxhdpi")
+    fun compactHomeRecordAction() {
+        var starts = 0
+        val recordActions = object : Actions by actions { override fun record() { starts++ } }
+        compose.setContent { AppTheme { HomeScreen(recordActions, {}, {}, {}) } }
+        compose.onNodeWithText("Start recording").assertIsDisplayed().performClick()
+        assertEquals(1, starts)
+        shot("14-home-compact")
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp-night-xxhdpi")
+    fun workspaceDark() {
+        install("kroko-en")
+        meeting()
+        compose.setContent { AppTheme { App(actions) } }
+        shot("15-home-dark")
+    }
+
+    @Test fun largeTextDetail() {
+        val session = meeting()
+        compose.setContent { AppTheme {
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(density.density, 1.5f)
+            ) { DetailScreen(session.name, actions) {} }
+        } }
+        compose.onNodeWithText("Transcript").assertIsDisplayed()
+        shot("16-detail-large-text")
     }
 
     @Test

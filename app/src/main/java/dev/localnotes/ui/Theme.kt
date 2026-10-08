@@ -23,27 +23,27 @@ data class Palette(
     val hero: Color, val heroInk: Color, val spark: Color,
 )
 val LightPalette = Palette(
-    paper = Color(0xFFF2F8F7), raised = Color(0xFFFFFFFF), ink = Color(0xFF102B31), muted = Color(0xFF526B70), faint = Color(0xFF71888B),
-    line = Color(0xFFD7E7E4), accent = Color(0xFF006F73), accentSoft = Color(0xFFD7F3EC), onAccent = Color(0xFFFFFFFF), danger = Color(0xFFB63343),
-    hero = Color(0xFF092E34), heroInk = Color(0xFFEFFFF9), spark = Color(0xFFFF7C65),
+    paper = Color(0xFFF5F6F8), raised = Color(0xFFFFFFFF), ink = Color(0xFF192332), muted = Color(0xFF566274), faint = Color(0xFF637086),
+    line = Color(0xFFE0E4EB), accent = Color(0xFF2855D9), accentSoft = Color(0xFFE8EEFF), onAccent = Color(0xFFFFFFFF), danger = Color(0xFFB63343),
+    hero = Color(0xFF17243D), heroInk = Color(0xFFF6F8FF), spark = Color(0xFFA8C1FF),
 )
 val DarkPalette = Palette(
-    paper = Color(0xFF07191D), raised = Color(0xFF11282C), ink = Color(0xFFE9FAF5), muted = Color(0xFFA8C6BF), faint = Color(0xFF789A94),
-    line = Color(0xFF29444A), accent = Color(0xFF75EBD3), accentSoft = Color(0xFF16453F), onAccent = Color(0xFF062924), danger = Color(0xFFFF8790),
-    hero = Color(0xFF123940), heroInk = Color(0xFFEFFFF9), spark = Color(0xFFFF9278),
+    paper = Color(0xFF10151F), raised = Color(0xFF1A2230), ink = Color(0xFFEFF3FA), muted = Color(0xFFB5C0D2), faint = Color(0xFF91A0B7),
+    line = Color(0xFF303D51), accent = Color(0xFFA8C1FF), accentSoft = Color(0xFF23385E), onAccent = Color(0xFF14294E), danger = Color(0xFFFF8790),
+    hero = Color(0xFF1C2D4A), heroInk = Color(0xFFF6F8FF), spark = Color(0xFFA8C1FF),
 )
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 val P: Palette @Composable get() = LocalPalette.current
 
 object Type {
-    val display = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 40.sp, lineHeight = 44.sp, letterSpacing = (-1.5).sp)
-    val title = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 29.sp, lineHeight = 35.sp, letterSpacing = (-0.8).sp)
+    val display = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.8).sp)
+    val title = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 34.sp, letterSpacing = (-0.8).sp)
     val heading = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 21.sp, lineHeight = 27.sp)
-    val item = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 18.sp, lineHeight = 24.sp)
+    val item = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 23.sp)
     val body = TextStyle(fontSize = 16.sp, lineHeight = 24.sp)
     val reading = TextStyle(fontSize = 17.sp, lineHeight = 26.sp)
     val small = TextStyle(fontSize = 14.sp, lineHeight = 20.sp)
-    val label = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.2.sp)
+    val label = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.7.sp)
     val timer = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 54.sp, lineHeight = 62.sp, letterSpacing = (-2).sp, fontFeatureSettings = "tnum, lnum")
 }
 /** Digits that don't jiggle while a timer runs. */

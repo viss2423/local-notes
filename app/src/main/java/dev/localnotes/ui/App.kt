@@ -46,7 +46,7 @@ interface Actions {
     fun copy(text: String)
 }
 
-enum class Tab(val label: String) { Record("Record"), Library("Recordings"), Setup("Setup") }
+enum class Tab(val label: String) { Record("Home"), Library("Recordings"), Setup("Setup") }
 
 @Composable
 fun App(actions: Actions) {
@@ -56,8 +56,7 @@ fun App(actions: Actions) {
     BackHandler(enabled = !recording && (selected != null || tab != Tab.Record)) { if (selected != null) selected = null else tab = Tab.Record }
 
     Box(Modifier.fillMaxSize().background(P.paper)) {
-        AnimatedContent(recording, transitionSpec = { fadeIn(tween(250)) togetherWith fadeOut(tween(200)) }, label = "mode") { live ->
-            if (live) RecordingScreen(actions)
+            if (recording) RecordingScreen(actions)
             else Column(Modifier.fillMaxSize().statusBarsPadding()) {
                 Box(Modifier.weight(1f)) {
                     val id = selected
@@ -72,7 +71,6 @@ fun App(actions: Actions) {
                 if (selected == null) WordTabs(Tab.entries.map { it.label }, tab.ordinal) { tab = Tab.entries[it] }
                 else Spacer(Modifier.navigationBarsPadding())
             }
-        }
     }
 }
 
@@ -115,58 +113,42 @@ fun HomeScreen(actions: Actions, openSetup: () -> Unit, open: (String) -> Unit, 
     val voicesReady = remember(downloads) { Models.active(context, Role.SPEAKER) != null }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             SignalMark()
             Spacer(Modifier.width(10.dp))
-            Text("LOCAL NOTES", style = Type.label, color = P.ink)
+            Text("Local Notes", style = Type.heading, color = P.ink)
             Spacer(Modifier.weight(1f))
-            Muted(RecordingInfo.format(System.currentTimeMillis(), "EEE d MMM"), style = Type.small)
+            TextAction("Setup", icon = AppIcons.Tune, onClick = openSetup)
         }
-        Spacer(Modifier.height(22.dp))
-        Text("A place for\nevery voice.", style = Type.display, color = P.ink)
-        Spacer(Modifier.height(7.dp))
-        Muted("Capture the conversation. Keep the details.", style = Type.body)
+        Spacer(Modifier.height(26.dp))
+        Muted(RecordingInfo.format(System.currentTimeMillis(), "EEEE, d MMMM"), style = Type.small)
+        Spacer(Modifier.height(5.dp))
+        Text("Your workspace", style = Type.display, color = P.ink)
         Spacer(Modifier.height(20.dp))
-        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(24.dp)).background(P.hero)) {
-            val bars = P.heroInk.copy(alpha = 0.08f)
-            Canvas(Modifier.matchParentSize()) {
-                val gap = size.width / 20f
-                for (i in 0..20) {
-                    val height = size.height * (0.11f + ((i * 7) % 11) / 38f)
-                    val x = i * gap
-                    drawLine(bars, Offset(x, size.height * 0.6f - height / 2), Offset(x, size.height * 0.6f + height / 2), 3.dp.toPx(), StrokeCap.Round)
-                }
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(P.hero).padding(22.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(AppIcons.Mic, null, Modifier.size(22.dp), tint = P.spark)
+                Spacer(Modifier.width(9.dp))
+                Text("NEW RECORDING", style = Type.label, color = P.heroInk)
             }
-            Column(Modifier.fillMaxWidth().padding(22.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("THE RECORDING STUDIO", style = Type.label, color = P.heroInk.copy(alpha = 0.75f))
-                    Spacer(Modifier.weight(1f))
-                    Box(Modifier.size(8.dp).clip(CircleShape).background(P.spark))
-                    Spacer(Modifier.width(6.dp))
-                    Text("READY", style = Type.label, color = P.spark)
-                }
-                Spacer(Modifier.height(21.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Press record.\nStay present.", style = Type.heading, color = P.heroInk)
-                        Spacer(Modifier.height(7.dp))
-                        Text(if (liveReady) "Live transcript as you speak" else "Audio saved privately on this phone",
-                            style = Type.small, color = P.heroInk.copy(alpha = 0.72f))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    RecordRing(86.dp, color = P.spark, onClick = actions::record)
-                }
-                Spacer(Modifier.height(23.dp))
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(11.dp)).background(P.heroInk.copy(alpha = 0.09f))
-                    .padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("●  ON DEVICE", style = Type.label, color = P.heroInk)
-                    Spacer(Modifier.weight(1f))
-                    Text("No account · No subscription", style = Type.small, color = P.heroInk.copy(alpha = 0.77f))
-                }
+            Spacer(Modifier.height(16.dp))
+            Text("Record a conversation", style = Type.heading, color = P.heroInk)
+            Spacer(Modifier.height(6.dp))
+            Text(if (liveReady) "Record audio and follow the transcript live." else "Record audio now. Set up live text when ready.",
+                style = Type.small, color = P.heroInk.copy(alpha = 0.8f))
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(P.spark)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = actions::record)
+                .padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                Icon(AppIcons.Mic, null, Modifier.size(20.dp), tint = P.hero)
+                Spacer(Modifier.width(10.dp))
+                Text("Start recording", style = Type.item, color = P.hero)
             }
+            Spacer(Modifier.height(14.dp))
+            Text("Saved on this device · Works offline after setup", style = Type.small, color = P.heroInk.copy(alpha = 0.8f))
         }
-        Spacer(Modifier.height(21.dp))
+        Spacer(Modifier.height(18.dp))
         if (!liveReady) {
             Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(P.accentSoft).padding(18.dp)) {
                 Text("Live transcripts need a one-time download", style = Type.heading, color = P.ink)
@@ -180,17 +162,17 @@ fun HomeScreen(actions: Actions, openSetup: () -> Unit, open: (String) -> Unit, 
         } else if (!voicesReady) {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(P.raised)
                 .clickable(onClick = openSetup).padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF6CDDF4)))
+                Icon(AppIcons.Tune, null, Modifier.size(18.dp), tint = P.accent)
                 Spacer(Modifier.width(10.dp))
-                Text("Add Voice ID for speaker labels", Modifier.weight(1f), style = Type.small, color = P.ink)
+                Text("Enable speaker labels", Modifier.weight(1f), style = Type.small, color = P.ink)
                 Text("→", style = Type.body, color = P.accent)
             }
             Spacer(Modifier.height(18.dp))
         }
         if (status.isNotBlank()) { Muted(status); Spacer(Modifier.height(20.dp)) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SectionLabel("YOUR SESSIONS", Modifier.weight(1f))
-            if (sessions.size > 4) TextAction("See all", onClick = openAll)
+            Text("Recent recordings", Modifier.weight(1f), style = Type.heading, color = P.ink)
+            if (sessions.isNotEmpty()) TextAction("View all", onClick = openAll)
         }
         Spacer(Modifier.height(6.dp))
         if (sessions.isEmpty()) Muted("Your recordings will appear here.", Modifier.padding(vertical = 12.dp))
@@ -214,10 +196,12 @@ private fun SignalMark() {
 
 @Composable
 fun SessionRow(session: SessionView, showDate: Boolean, onClick: () -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(RoundedCornerShape(17.dp))
+    Column(Modifier.fillMaxWidth().padding(vertical = 5.dp).clip(RoundedCornerShape(12.dp))
         .background(P.raised).clickable(onClick = onClick).padding(horizontal = 15.dp)) {
         Row(Modifier.padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(3.dp).height(37.dp).clip(RoundedCornerShape(2.dp)).background(P.accent))
+            Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(P.accentSoft), contentAlignment = Alignment.Center) {
+                Icon(AppIcons.List, null, Modifier.size(22.dp), tint = P.accent)
+            }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(session.title, style = Type.item, color = P.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -270,16 +254,16 @@ fun RecordingScreen(actions: Actions) {
             Spacer(Modifier.weight(1f))
             dir?.let { Muted("STARTED " + RecordingInfo.format(RecordingInfo.startEpoch(it), "HH:mm"), style = Type.label.merge(Tabular)) }
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).clip(RoundedCornerShape(24.dp))
-            .background(P.hero).padding(vertical = 18.dp),
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).clip(RoundedCornerShape(18.dp))
+            .background(P.hero).padding(vertical = 14.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
             Text(if (paused) "ON HOLD" else "LIVE CAPTURE", style = Type.label, color = P.spark)
             Spacer(Modifier.height(5.dp))
             Text(duration(elapsed), style = Type.timer, color = P.heroInk)
             Spacer(Modifier.height(8.dp))
-            Waveform(paused, Modifier.fillMaxWidth().height(42.dp).padding(horizontal = 27.dp))
+            Waveform(paused, Modifier.fillMaxWidth().height(28.dp).padding(horizontal = 27.dp))
             Spacer(Modifier.height(10.dp))
-            Text("Keep the phone near the people speaking", style = Type.small, color = P.heroInk.copy(alpha = 0.75f))
+
         }
         Spacer(Modifier.height(15.dp))
         TextTabs(listOf("Transcript", "Notes"), page, Modifier.padding(horizontal = 24.dp)) { page = it }

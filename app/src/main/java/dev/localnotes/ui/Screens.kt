@@ -1,6 +1,7 @@
 package dev.localnotes.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -15,6 +16,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -52,9 +54,18 @@ import kotlinx.coroutines.delay
 fun LibraryScreen(open: (String) -> Unit) {
     val sessions = rememberSessions()
     var query by rememberSaveable { mutableStateOf("") }
-    val matches = sessions.filter { "${it.title} ${it.date()} ${it.day()}".contains(query.trim(), ignoreCase = true) }
+    var filter by rememberSaveable { mutableIntStateOf(0) }
+    val matches = sessions.filter {
+        "${it.title} ${it.date()} ${it.day()}".contains(query.trim(), ignoreCase = true) &&
+            (filter == 0 || if (filter == 1) it.pending || it.error != null else it.durationMs >= 30 * 60_000L)
+    }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 20.dp)) {
-        item { Text("Recordings", style = Type.title, color = P.ink); Spacer(Modifier.height(16.dp)) }
+        item {
+            Text("Recordings", style = Type.title, color = P.ink)
+            Spacer(Modifier.height(5.dp))
+            Muted("${sessions.size} saved on this device")
+            Spacer(Modifier.height(20.dp))
+        }
         item {
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(P.raised).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(AppIcons.Search, null, Modifier.size(18.dp), tint = P.muted); Spacer(Modifier.width(10.dp))
@@ -62,12 +73,22 @@ fun LibraryScreen(open: (String) -> Unit) {
                     if (query.isEmpty()) Muted("Search by name or date", style = Type.body)
                     BasicTextField(query, { query = it }, singleLine = true, textStyle = Type.body.copy(color = P.ink), cursorBrush = SolidColor(P.accent), modifier = Modifier.fillMaxWidth())
                 }
-                if (query.isNotEmpty()) Icon(AppIcons.Close, "Clear search", Modifier.size(18.dp).clickable { query = "" }, tint = P.muted)
+                if (query.isNotEmpty()) TextAction("Clear", onClick = { query = "" })
             }
             Spacer(Modifier.height(8.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("All", "Needs attention", "30+ minutes").forEachIndexed { index, label ->
+                    FilterChip(selected = filter == index, onClick = { filter = index }, label = { Text(label) })
+                }
+            }
         }
         if (matches.isEmpty()) item {
-            Muted(if (sessions.isEmpty()) "No recordings yet." else "Nothing matches “$query”.", Modifier.padding(vertical = 24.dp), style = Type.body)
+            Muted(when {
+                sessions.isEmpty() -> "No recordings yet."
+                query.isBlank() && filter == 1 -> "All caught up. No recordings need attention."
+                query.isBlank() && filter == 2 -> "No recordings of 30 minutes or longer."
+                else -> "No recordings match this search and filter."
+            }, Modifier.padding(vertical = 24.dp), style = Type.body)
         }
         var lastDay = ""
         matches.forEach { session ->
@@ -81,6 +102,7 @@ fun LibraryScreen(open: (String) -> Unit) {
 // ---------------- One recording ----------------
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
     val context = LocalContext.current
     val sessions = rememberSessions()
@@ -105,6 +127,7 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
     var segmentToEdit by remember { mutableStateOf<Segment?>(null) }
     var deleting by remember { mutableStateOf(false) }
     var transcriptQuery by rememberSaveable(id) { mutableStateOf("") }
+    var showTools by rememberSaveable(id) { mutableStateOf(false) }
     val nameVersion by Live.transcriptVersion.collectAsState()
     val speakerNames = remember(session.dir, nameVersion) { SpeakerNames(session.dir) }
     val segments = session.transcript.visible()
@@ -147,7 +170,9 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
                     }, Modifier.weight(1f))
                     if (!recording && !working) TextAction("Continue") { actions.process(id, transcribe = transcriptionPending, resummarize = false) }
                 }
-                else -> Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                else -> Column {
+                  TextAction(if (showTools) "Hide processing tools" else "Processing tools", icon = AppIcons.Tune) { showTools = !showTools }
+                  if (showTools) Column {
                     val hasText = segments.isNotEmpty()
                     when {
                         !hasText -> TextAction("Transcribe") { actions.process(id, transcribe = true, resummarize = false) }
@@ -155,6 +180,7 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
                         else -> TextAction("Summarize again") { actions.process(id, false, true) }
                     }
                     if (hasText) TextAction("Transcribe again", color = P.muted) { actions.process(id, true, false) }
+                  }
                 }
             }
             Spacer(Modifier.height(14.dp))
@@ -213,21 +239,20 @@ fun DetailScreen(id: String, actions: Actions, back: () -> Unit) {
                 SelectionContainer { MarkdownText(body) }
             } else item {
                 Muted(when (page) {
-                    0, 1 -> if (Models.active(context, Role.SUMMARY) == null) "Download a summary model in Setup, then tap Write summary." else "No summary yet."
-                    else -> "No transcript yet. Tap Transcribe."
+                    0, 1 -> if (Models.active(context, Role.SUMMARY) == null) "Download a summary model in Setup, then open Processing tools to write a summary." else "No summary yet. Open Processing tools to write one."
+                    else -> "No transcript yet. Open Processing tools to transcribe this recording."
                 }, style = Type.body)
             }
           item {
             Column {
             Spacer(Modifier.height(20.dp))
             Hairline()
-            Row(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            FlowRow(Modifier.padding(vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (body != null) TextAction("Copy", icon = AppIcons.Copy) { actions.copy(body) }
                 TextAction("Share", icon = AppIcons.Share) {
                     actions.share(session.title + "\n\n" + listOfNotNull(session.summary, session.notes, transcriptText.ifBlank { null }).joinToString("\n\n"))
                 }
                 TextAction("Export", icon = AppIcons.Download) { actions.export(id) }
-                Spacer(Modifier.weight(1f))
                 TextAction("Delete", color = P.muted) { deleting = true }
             }
             session.error?.let { Text(it, Modifier.padding(top = 8.dp), style = Type.small, color = P.danger) }
@@ -278,9 +303,9 @@ private fun PlayerCard(player: RecordingPlayer) {
     val white = P.heroInk
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).background(P.hero)
         .padding(horizontal = 16.dp, vertical = 14.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Column {
             Text("RECORDING", style = Type.label, color = signal)
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.height(4.dp))
             Text("Tap a transcript line to play it", style = Type.small, color = white.copy(alpha = 0.7f))
         }
         Canvas(Modifier.fillMaxWidth().height(34.dp)
