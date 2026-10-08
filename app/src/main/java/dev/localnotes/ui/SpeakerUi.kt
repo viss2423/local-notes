@@ -1,19 +1,16 @@
 package dev.localnotes.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -23,45 +20,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import dev.localnotes.SpeakerNames
 import dev.localnotes.Live
+import dev.localnotes.SpeakerNames
 import java.io.File
 
-private val brightVoices = listOf(Color(0xFFBEF06B), Color(0xFF6CDDF4), Color(0xFFFFA377), Color(0xFFC5A4FF), Color(0xFFFF89BD))
-private val darkVoices = listOf(Color(0xFF56860B), Color(0xFF007F9F), Color(0xFFB85822), Color(0xFF6B4DC1), Color(0xFFB92E77))
-@Composable fun voiceColor(id: Int): Color {
-    val colors = if (isSystemInDarkTheme()) brightVoices else darkVoices
-    return colors[(id - 1).coerceAtLeast(0) % colors.size]
-}
+// Six inks that stay distinguishable on paper and on the dark deck.
+private val paperVoices = listOf(Color(0xFF2B59C3), Color(0xFF2E7D5A), Color(0xFFB7791F), Color(0xFF8E4FA8), Color(0xFF137C8B), Color(0xFFC23B6A))
+private val deckVoices = listOf(Color(0xFF7FA2FF), Color(0xFF5FCB9A), Color(0xFFE7B04F), Color(0xFFC79BE0), Color(0xFF4FC3D1), Color(0xFFF28BAA))
+fun voiceColor(id: Int, onDark: Boolean): Color = (if (onDark) deckVoices else paperVoices)[(id - 1).coerceAtLeast(0) % paperVoices.size]
+@Composable fun voiceColor(id: Int): Color = voiceColor(id, isSystemInDarkTheme())
 
+/** A speaker's name with a square of their colour. Tap to rename; the transcript keeps the stable number. */
 @Composable
-fun SpeakerChip(id: Int, session: File, onRename: (Int) -> Unit) {
-    val color = voiceColor(id)
+fun SpeakerTag(id: Int, session: File, onRename: (Int) -> Unit, onDeck: Boolean = false) {
+    val color = voiceColor(id, onDeck || isSystemInDarkTheme())
     val version by Live.transcriptVersion.collectAsState()
     val label = remember(id, session, version) { SpeakerNames(session).name(id) }
-    Row(Modifier.testTag("speaker-$id").background(color.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
-        .clickable(role = Role.Button, onClick = { onRename(id) }).padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically) {
-        Text("●", color = color, style = Type.small)
-        Spacer(Modifier.width(6.dp))
-        Text(label, color = color, style = Type.small)
-        Spacer(Modifier.width(3.dp))
-        Icon(AppIcons.Edit, "Rename $label", modifier = Modifier.size(14.dp), tint = color.copy(alpha = 0.8f))
+    Row(Modifier.testTag("speaker-$id").clickable(role = Role.Button, onClickLabel = "Rename $label", onClick = { onRename(id) })
+        .heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(9.dp).background(color))
+        Spacer(Modifier.width(7.dp))
+        Text(label, style = Type.smallStrong, color = if (onDeck) P.deckInk else P.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
-fun RenameSpeakerDialog(id: Int, session: File, onClose: () -> Unit) {
+fun RenameSpeakerDialog(id: Int, session: File, onDeck: Boolean = false, onClose: () -> Unit) {
     var name by remember(id, session) { mutableStateOf(SpeakerNames(session).name(id)) }
-    AlertDialog(onDismissRequest = onClose, containerColor = P.raised,
-        title = { Text("Name Speaker $id", style = Type.heading, color = P.ink) },
-        text = { OutlinedTextField(name, { name = it.take(60) }, singleLine = true,
-            label = { Text("Speaker name") }, supportingText = { Text("Tap a speaker label to change it anytime.") }) },
-        confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = {
-            SpeakerNames(session).rename(id, name); onClose()
-        }) { Text("Save", color = P.accent) } },
-        dismissButton = { TextButton(onClick = onClose) { Text("Cancel", color = P.muted) } })
+    InkDialog("Name speaker $id", onDismiss = onClose, confirm = "Save", confirmEnabled = name.isNotBlank(), onDeck = onDeck,
+        onConfirm = { SpeakerNames(session).rename(id, name); onClose() }) {
+        InkField(name, { name = it.take(60) }, label = "Speaker name", onDeck = onDeck)
+        Text("Tap a name in the transcript to change it anytime.", Modifier.padding(top = 8.dp), style = Type.small,
+            color = if (onDeck) P.deckMuted else P.muted)
+    }
 }

@@ -32,6 +32,8 @@ class SessionView(val dir: File) {
     val error: String? by lazy { File(dir, ProcessingService.PROCESSING_ERROR).takeIf { it.exists() }?.readText()
         ?: File(dir, "error.txt").takeIf { it.exists() }?.readText() }
     val pauses: Int by lazy { RecordingInfo.read(dir)?.optJSONArray("pauses")?.length() ?: 0 }
+    /** Flags dropped while recording, as audio offsets in milliseconds. */
+    val bookmarks: List<Long> by lazy { Bookmarks.list(dir) }
 
     fun range() = RecordingInfo.displayRange(dir)
     fun date() = RecordingInfo.displayDate(dir)
@@ -69,4 +71,10 @@ fun duration(ms: Long): String {
 fun spokenDuration(ms: Long): String {
     val m = ms / 60000
     return when { m >= 60 -> "${m / 60} h ${m % 60} min"; m >= 1 -> "$m min"; else -> "${ms / 1000} s" }
+}
+
+/** Hours:minutes:seconds, always three parts, for a ticking timer. */
+fun clock(ms: Long): String {
+    val s = ms / 1000
+    return "%02d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60)
 }

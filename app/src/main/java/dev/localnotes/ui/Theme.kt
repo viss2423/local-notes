@@ -10,41 +10,63 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import dev.localnotes.R
 
-/** A compact audio-console palette with one consistent signal colour in both themes. */
+/**
+ * "Field notebook" palette: warm paper and ink, one signal red for everything that is live, and a
+ * highlighter yellow that only ever marks something you found or flagged. The recording screen always
+ * uses the dark "deck" colours, like the lit display of a recorder.
+ */
 @Immutable
 data class Palette(
-    val paper: Color, val raised: Color, val ink: Color, val muted: Color, val faint: Color,
-    val line: Color, val accent: Color, val accentSoft: Color, val onAccent: Color, val danger: Color,
-    val hero: Color, val heroInk: Color, val spark: Color,
+    val paper: Color, val raised: Color, val ink: Color, val muted: Color, val faint: Color, val line: Color,
+    val rec: Color, val recSoft: Color, val onRec: Color, val mark: Color, val markSoft: Color, val danger: Color,
+    val deck: Color, val deckInk: Color, val deckMuted: Color, val deckLine: Color,
 )
 val LightPalette = Palette(
-    paper = Color(0xFFF5F6F8), raised = Color(0xFFFFFFFF), ink = Color(0xFF192332), muted = Color(0xFF566274), faint = Color(0xFF637086),
-    line = Color(0xFFE0E4EB), accent = Color(0xFF2855D9), accentSoft = Color(0xFFE8EEFF), onAccent = Color(0xFFFFFFFF), danger = Color(0xFFB63343),
-    hero = Color(0xFF17243D), heroInk = Color(0xFFF6F8FF), spark = Color(0xFFA8C1FF),
+    paper = Color(0xFFF4F0E8), raised = Color(0xFFEBE6DA), ink = Color(0xFF1B1915), muted = Color(0xFF666054), faint = Color(0xFF9A9486),
+    line = Color(0xFFD8D2C4), rec = Color(0xFFD93A12), recSoft = Color(0xFFF6DDD2), onRec = Color(0xFFFFFFFF),
+    mark = Color(0xFFF2D13B), markSoft = Color(0xFFFAEFB4), danger = Color(0xFFB3261E),
+    deck = Color(0xFF100F0D), deckInk = Color(0xFFF4EFE6), deckMuted = Color(0xFFA29B8C), deckLine = Color(0xFF2E2B27),
 )
 val DarkPalette = Palette(
-    paper = Color(0xFF10151F), raised = Color(0xFF1A2230), ink = Color(0xFFEFF3FA), muted = Color(0xFFB5C0D2), faint = Color(0xFF91A0B7),
-    line = Color(0xFF303D51), accent = Color(0xFFA8C1FF), accentSoft = Color(0xFF23385E), onAccent = Color(0xFF14294E), danger = Color(0xFFFF8790),
-    hero = Color(0xFF1C2D4A), heroInk = Color(0xFFF6F8FF), spark = Color(0xFFA8C1FF),
+    paper = Color(0xFF151412), raised = Color(0xFF211F1B), ink = Color(0xFFF0EBE1), muted = Color(0xFFA39C8E), faint = Color(0xFF6E685D),
+    line = Color(0xFF34312B), rec = Color(0xFFFF5A33), recSoft = Color(0xFF3A211A), onRec = Color(0xFF1A0C07),
+    mark = Color(0xFFE9C93C), markSoft = Color(0xFF3B3414), danger = Color(0xFFF2B8B5),
+    deck = Color(0xFF0D0C0B), deckInk = Color(0xFFF4EFE6), deckMuted = Color(0xFFA29B8C), deckLine = Color(0xFF2E2B27),
 )
 val LocalPalette = staticCompositionLocalOf { LightPalette }
 val P: Palette @Composable get() = LocalPalette.current
 
+@OptIn(ExperimentalTextApi::class)
+private fun sans(weight: Int) = Font(R.font.instrument_sans, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
+/** Instrument Serif for titles, Instrument Sans for reading and controls, IBM Plex Mono for every number that ticks. */
+val Serif = FontFamily(Font(R.font.instrument_serif), Font(R.font.instrument_serif_italic, style = FontStyle.Italic))
+val Sans = FontFamily(sans(400), sans(500), sans(600), sans(700))
+val Mono = FontFamily(Font(R.font.plex_mono, FontWeight.Normal), Font(R.font.plex_mono_medium, FontWeight.Medium))
+
 object Type {
-    val display = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 32.sp, lineHeight = 38.sp, letterSpacing = (-0.8).sp)
-    val title = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 28.sp, lineHeight = 34.sp, letterSpacing = (-0.8).sp)
-    val heading = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 21.sp, lineHeight = 27.sp)
-    val item = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 23.sp)
-    val body = TextStyle(fontSize = 16.sp, lineHeight = 24.sp)
-    val reading = TextStyle(fontSize = 17.sp, lineHeight = 26.sp)
-    val small = TextStyle(fontSize = 14.sp, lineHeight = 20.sp)
-    val label = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium, letterSpacing = 0.7.sp)
-    val timer = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 54.sp, lineHeight = 62.sp, letterSpacing = (-2).sp, fontFeatureSettings = "tnum, lnum")
+    val display = TextStyle(fontFamily = Serif, fontSize = 46.sp, lineHeight = 48.sp, letterSpacing = (-1.2).sp)
+    val title = TextStyle(fontFamily = Serif, fontSize = 34.sp, lineHeight = 38.sp, letterSpacing = (-0.6).sp)
+    val heading = TextStyle(fontFamily = Serif, fontSize = 23.sp, lineHeight = 28.sp, letterSpacing = (-0.2).sp)
+    val item = TextStyle(fontFamily = Serif, fontSize = 21.sp, lineHeight = 25.sp)
+    val body = TextStyle(fontFamily = Sans, fontSize = 16.sp, lineHeight = 24.sp)
+    val bodyStrong = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp)
+    val reading = TextStyle(fontFamily = Sans, fontSize = 17.sp, lineHeight = 27.sp)
+    val small = TextStyle(fontFamily = Sans, fontSize = 14.sp, lineHeight = 20.sp)
+    val smallStrong = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp)
+    /** Small mono caps, used above sections and for statuses. */
+    val label = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 15.sp, letterSpacing = 1.1.sp)
+    val mono = TextStyle(fontFamily = Mono, fontSize = 13.sp, lineHeight = 18.sp, fontFeatureSettings = "tnum")
+    val timer = TextStyle(fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 62.sp, lineHeight = 68.sp, letterSpacing = (-3).sp, fontFeatureSettings = "tnum")
 }
 /** Digits that don't jiggle while a timer runs. */
 val Tabular = TextStyle(fontFeatureSettings = "tnum")
@@ -52,10 +74,9 @@ val Tabular = TextStyle(fontFeatureSettings = "tnum")
 @Composable
 fun AppTheme(content: @Composable () -> Unit) {
     val palette = if (isSystemInDarkTheme()) DarkPalette else LightPalette
-    // Material dialogs and text fields use the same surfaces as the custom studio controls.
+    // A few Material pieces remain (text selection, text); they take the notebook colours.
     val scheme = (if (palette == DarkPalette) darkColorScheme() else lightColorScheme()).copy(
-        primary = palette.accent, onPrimary = palette.onAccent, background = palette.paper, surface = palette.paper,
-        surfaceContainerHigh = palette.raised, surfaceContainer = palette.raised, surfaceContainerHighest = palette.raised,
+        primary = palette.rec, onPrimary = palette.onRec, background = palette.paper, surface = palette.paper,
         onSurface = palette.ink, onSurfaceVariant = palette.muted, outline = palette.line, outlineVariant = palette.line, error = palette.danger,
     )
     CompositionLocalProvider(LocalPalette provides palette) {
