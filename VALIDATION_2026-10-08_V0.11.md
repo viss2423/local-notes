@@ -21,3 +21,9 @@ No phone installation, microphone capture, on-device navigation or endurance tes
 The APK retains the existing debug signing certificate for in-place upgrades. It is a minified release build, not a debug build. A separate release-key strategy is a future product hardening task.
 
 See [product review and priorities](PRODUCT_REVIEW_2026-10-08.md) for the official-source comparison with Otter, Notta, Plaud and Pocket. Competitor features were researched, not benchmarked.
+
+## Final results (added 8 October 2026, after the original run was cut off)
+
+- Host tests on the committed source (HEAD 170ab2b): 37 tests passed, 0 failed, 0 skipped (ChunkingTest 5, PipelineTest 19, UiScreenshotTest 13).
+- Lint and the minified release build were run before the original run ended; the release APK dist/LocalNotes-0.11.0.apk (versionCode 11, 38,847,255 bytes) was built at 17:55 and its final lint result was not re-checked here.
+- Installed over v0.10.0 on the OnePlus 13R with `adb install -r` (Android accepts an in-place update only when the signing key matches). The app launched without a crash and the 34 existing recordings were still listed. No microphone capture, endurance or summary-time test was run on this version.
